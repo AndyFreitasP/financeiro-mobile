@@ -14,12 +14,24 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
       - name: Install Dependencies
         run: |
           pip install flet fpdf google-generativeai
 
       - name: Build APK
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # PUXA A CHAVE QUE VOCÊ OCULTOU
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          flet build apk --verbose
+          # O comando 'yes' responde automaticamente 'y' para qualquer pergunta do sistema
+          yes | flet build apk --verbose
