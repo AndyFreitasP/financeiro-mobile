@@ -31,11 +31,9 @@ jobs:
 
       - name: Build APK
         run: |
-          # CORREÇÃO: Removido o argumento '--splash' que causava o erro.
-          # O Flet usará o '--icon' automaticamente para a abertura.
+          # Flet vai buscar automaticamente por 'icon.png' na raiz
           flet build apk --verbose --yes \
             --product "Andy Financeiro" \
-            --icon icone.png \
             --splash-color "#000000"
         env:
           FLUTTER_ROOT: ${{ runner.tool_cache }}/flutter
