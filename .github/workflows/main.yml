@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  workflow_dispatch: # Botão para rodar manualmente se precisar
 
 jobs:
   build:
@@ -21,16 +21,21 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          pip install --upgrade pip
           pip install flet
-          pip install flet pyinstaller
+          # Se você subiu o requirements.txt, isso garante que o fpdf seja instalado
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Build APK
         run: |
-          # AQUI ESTA A CORRECAO: Adicionei o nome do seu arquivo
-          flet build apk --verbose app_financeiro.py
+          # O comando padrão, esperando que o arquivo se chame main.py
+          flet build apk --verbose
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        with:
+          name: financeiro-app
+          path: build/apk/*.apk
         with:
           name: financeiro-app
           path: build/apk/*.apk
