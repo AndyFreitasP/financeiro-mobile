@@ -23,7 +23,6 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install flet
-          # Garante a instalacao do requirements correto
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Accept Android Licenses
@@ -32,10 +31,11 @@ jobs:
 
       - name: Build APK
         run: |
+          # CORREÇÃO: Removido o argumento '--splash' que causava o erro.
+          # O Flet usará o '--icon' automaticamente para a abertura.
           flet build apk --verbose --yes \
             --product "Andy Financeiro" \
             --icon icone.png \
-            --splash icone.png \
             --splash-color "#000000"
         env:
           FLUTTER_ROOT: ${{ runner.tool_cache }}/flutter
