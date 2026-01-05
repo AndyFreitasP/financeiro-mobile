@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch: # Botão para rodar manualmente se precisar
+  workflow_dispatch:
 
 jobs:
   build:
@@ -23,19 +23,16 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install flet
-          # Se você subiu o requirements.txt, isso garante que o fpdf seja instalado
+          # Instala fpdf se o requirements.txt existir
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Build APK
         run: |
-          # O comando padrão, esperando que o arquivo se chame main.py
+          # O comando abaixo procura por main.py automaticamente
           flet build apk --verbose
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
-        with:
-          name: financeiro-app
-          path: build/apk/*.apk
         with:
           name: financeiro-app
           path: build/apk/*.apk
