@@ -2,12 +2,10 @@ import flet as ft
 import sqlite3
 from datetime import datetime
 from fpdf import FPDF
-# Nota: O comando de importação continua igual, 
-# mas vamos mudar como o robô instala ela.
 import os
 
 # ==============================================================================
-# 0. FUNÇÕES UTILITÁRIAS (SEGURANÇA)
+# 0. FUNÇÕES UTILITÁRIAS (SEGURANÇA E UI)
 # ==============================================================================
 def borda_segura(width, color):
     try: return ft.Border.all(width, color)
@@ -40,6 +38,13 @@ class RelatorioPDF(FPDF):
         self.set_font('Arial', '', 9)
         self.cell(0, 5, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", 0, 1, 'C')
         self.ln(20)
+    
+    # Adicionando assinatura no PDF também!
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.set_text_color(128)
+        self.cell(0, 10, 'Powered by AndyP', 0, 0, 'C')
 
 def gerar_pdf_financeiro(dados, saldo_total, mes_referencia):
     cor_tema = (46, 204, 113) if saldo_total >= 0 else (231, 76, 60)
@@ -74,7 +79,7 @@ def gerar_pdf_financeiro(dados, saldo_total, mes_referencia):
     return nome_arquivo
 
 # ==============================================================================
-# 2. BACKEND
+# 2. BACKEND (SQLITE)
 # ==============================================================================
 class BancoDeDados:
     def __init__(self):
@@ -116,11 +121,10 @@ class BancoDeDados:
         self.conn.cursor().execute("DELETE FROM metas WHERE id = ?", (idm,)); self.conn.commit()
 
 # ==============================================================================
-# 3. FRONTEND (V40 - STRINGS PURAS)
+# 3. FRONTEND (IDENTIDADE VISUAL ANDYP)
 # ==============================================================================
 def main(page: ft.Page):
-    page.title = "Financeiro V40"
-    # FIX: Usando string "dark" em vez de Enum para evitar erro
+    page.title = "Andy Financeiro"
     page.theme_mode = "dark" 
     page.bgcolor = "#000000"
     page.padding = 0
@@ -129,7 +133,6 @@ def main(page: ft.Page):
     db = BancoDeDados()
     menu_estado = {"atual": 0}
     
-    # Container transparente para ver o fundo
     conteudo_principal = ft.Container(expand=True, padding=10, bgcolor=None)
 
     # --- TELAS ---
@@ -142,7 +145,7 @@ def main(page: ft.Page):
             lista_transacoes.controls.clear()
             saldo_total = sum(row[5] for row in dados)
             if not dados:
-                lista_transacoes.controls.append(ft.Container(content=ft.Text("Nenhum lançamento neste mês.", color="grey"), padding=20, alignment=ft.Alignment(0, 0)))
+                lista_transacoes.controls.append(ft.Container(content=ft.Text("Sem registros.", color="grey"), padding=20, alignment=ft.Alignment(0, 0)))
             for row in dados:
                 id_db, data, desc, cat, tipo, valor = row
                 cor = "#FF5555" if valor < 0 else "#00FF7F"
@@ -150,47 +153,48 @@ def main(page: ft.Page):
                     ft.Container(content=ft.Row([
                             ft.Column([ft.Text(data[:5], weight="bold"), ft.Text(cat, size=10, color="grey")]),
                             ft.Container(content=ft.Text(desc, no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS), expand=True, padding=padding_only(left=10)),
-                            # FIX: Strings puras para alinhamento
-                            ft.Column([ft.Text(f"R$ {valor:.2f}", color=cor, weight="bold"), ft.Container(content=ft.Text("X", color="#555555"), on_click=lambda e, x=id_db: deletar_extrato(x))], alignment="center", horizontal_alignment="end")
-                        ]), bgcolor="#1A1A1A", padding=15, border_radius=10, border=border_only_left(4, cor))
+                            ft.Column([ft.Text(f"R$ {valor:.2f}", color=cor, weight="bold"), ft.Container(content=ft.Icon(ft.Icons.DELETE_OUTLINE, color="#444444", size=18), on_click=lambda e, x=id_db: deletar_extrato(x))], alignment="center", horizontal_alignment="end")
+                        ]), bgcolor="#111111", padding=15, border_radius=10, border=border_only_left(4, cor))
                 )
             txt_saldo.value = f"R$ {saldo_total:,.2f}"
             txt_saldo.color = "#FF5555" if saldo_total < 0 else "#00FF7F"
             try: txt_saldo.update(); lista_transacoes.update()
             except: pass
+        
         def adicionar_extrato(e):
             try: val = float(txt_valor.value.replace(",", "."))
             except: return
             db.adicionar(txt_data.value, txt_desc.value, txt_cat.value, dd_tipo.value, val)
             txt_desc.value = ""; txt_cat.value = ""; txt_valor.value = ""
             atualizar_extrato()
+        
         def deletar_extrato(x): db.deletar(x); atualizar_extrato()
         def acao_pdf(e):
             mes = dropdown_mes.value; dados = db.listar(mes); saldo = sum(r[5] for r in dados)
             try: os.startfile(gerar_pdf_financeiro(dados, saldo, mes))
             except: pass
+
         meses = db.get_meses(); mes_atual = f"{datetime.now().month:02d}/{datetime.now().year}"
         if mes_atual not in meses: meses.append(mes_atual)
         
-        dropdown_mes = ft.Dropdown(options=[ft.dropdown.Option(m) for m in meses], value=mes_atual, width=140, bgcolor="#1f1f1f", border_radius=10); dropdown_mes.on_change = atualizar_extrato
-        txt_data = ft.TextField(label="Data", value=datetime.now().strftime("%d/%m/%Y"), bgcolor="#1f1f1f", border_radius=8, expand=1)
-        dd_tipo = ft.Dropdown(options=[ft.dropdown.Option("Despesa"), ft.dropdown.Option("Receita")], value="Despesa", bgcolor="#1f1f1f", border_radius=8, expand=1)
+        dropdown_mes = ft.Dropdown(options=[ft.dropdown.Option(m) for m in meses], value=mes_atual, width=120, bgcolor="#111", border_radius=10); dropdown_mes.on_change = atualizar_extrato
+        txt_data = ft.TextField(label="Data", value=datetime.now().strftime("%d/%m/%Y"), bgcolor="#111", border_radius=8, expand=1)
+        dd_tipo = ft.Dropdown(options=[ft.dropdown.Option("Despesa"), ft.dropdown.Option("Receita")], value="Despesa", bgcolor="#111", border_radius=8, expand=1)
+        txt_desc = ft.TextField(label="Descrição", bgcolor="#111", border_radius=8, expand=2)
+        txt_valor = ft.TextField(label="Valor", keyboard_type="number", bgcolor="#111", border_radius=8, expand=1)
+        txt_cat = ft.TextField(label="Categoria", bgcolor="#111", border_radius=8)
         
-        # Hints
-        txt_desc = ft.TextField(label="Descrição", hint_text="Ex: Netflix...", bgcolor="#1f1f1f", border_radius=8, expand=2)
-        txt_valor = ft.TextField(label="Valor", hint_text="0,00", keyboard_type="number", bgcolor="#1f1f1f", border_radius=8, expand=1)
-        txt_cat = ft.TextField(label="Categoria", hint_text="Ex: Lazer...", bgcolor="#1f1f1f", border_radius=8)
-        
-        # FIX: Alignment manual (0,0)
         btn_lancar = ft.Container(content=ft.Text("LANÇAR", weight="bold"), bgcolor="#007ACC", padding=15, alignment=ft.Alignment(0, 0), border_radius=8, on_click=adicionar_extrato)
-        btn_pdf = ft.Container(content=ft.Text("PDF", weight="bold"), bgcolor="#2E8B57", padding=15, alignment=ft.Alignment(0, 0), border_radius=8, on_click=acao_pdf)
+        btn_pdf = ft.IconButton(icon=ft.Icons.PICTURE_AS_PDF, icon_color="#2E8B57", on_click=acao_pdf)
         
         layout = ft.Column([
-            ft.Row([ft.Text("Mês:", color="grey"), dropdown_mes], alignment="center"),
-            ft.Container(content=txt_saldo, alignment=ft.Alignment(0, 0), padding=20, border_radius=15, bgcolor="#1f1f1f", border=borda_segura(1, "#333")),
-            ft.Text("Extrato", weight="bold", color="grey"), lista_transacoes, ft.Divider(color="transparent"), btn_pdf, ft.Divider(),
-            ft.Text("Novo Lançamento", weight="bold"), ft.Container(content=ft.Column([ft.Row([txt_data, dd_tipo]), ft.Row([txt_desc, txt_valor]), txt_cat, ft.Container(height=5), btn_lancar]), padding=15, bgcolor="#1A1A1A", border_radius=10)
-        ], expand=True, spacing=15)
+            ft.Row([ft.Text("HISTÓRICO", weight="bold", color="grey"), ft.Row([dropdown_mes, btn_pdf])], alignment="spaceBetween"),
+            ft.Container(content=txt_saldo, alignment=ft.Alignment(0, 0), padding=15, border_radius=15, bgcolor="#111", border=borda_segura(1, "#222")),
+            lista_transacoes,
+            ft.ExpansionTile(title=ft.Text("Novo Lançamento", size=14, color="grey"), controls=[
+                ft.Container(content=ft.Column([ft.Row([txt_data, dd_tipo]), ft.Row([txt_desc, txt_valor]), txt_cat, btn_lancar]), padding=10, bgcolor="#0A0A0A")
+            ])
+        ], expand=True, spacing=10)
         atualizar_extrato()
         return ft.Container(content=layout, expand=True)
 
@@ -204,44 +208,28 @@ def main(page: ft.Page):
                 if prog > 1: prog = 1
                 cor_barra = "#00FF7F" if prog >= 1 else "#007ACC"
                 lista_metas.controls.append(ft.Container(content=ft.Column([
-                    ft.Row([ft.Text(nome, weight="bold", size=16), ft.Container(content=ft.Text("X", color="red"), on_click=lambda e, x=idm: (db.deletar_meta(x), atualizar_metas()))], alignment="spaceBetween"),
-                    ft.ProgressBar(value=prog, color=cor_barra, bgcolor="#333333", height=10),
-                    ft.Row([ft.Text(f"R$ {atual:,.0f}", color="grey"), ft.Text(f"Meta: R$ {alvo:,.0f}", color="grey"), ft.Text(f"{int(prog*100)}%", color=cor_barra)], alignment="spaceBetween"),
-                    ft.Row([ft.TextField(label="+", hint_text="R$", width=80, height=40, text_size=12, bgcolor="#222", border_radius=5, on_submit=lambda e, idx=idm: (db.atualizar_meta(idx, float(e.control.value.replace(",","."))), atualizar_metas())), ft.Container(content=ft.Text("Depositar", size=12), padding=10, bgcolor="#333", border_radius=5, on_click=lambda e, idx=idm: (db.atualizar_meta(idx, float(e.control.data.value.replace(",","."))), atualizar_metas()))], alignment="end")
-                ]), bgcolor="#1A1A1A", padding=15, border_radius=10, border=borda_segura(1, "#333")))
+                    ft.Row([ft.Text(nome, weight="bold"), ft.IconButton(ft.Icons.DELETE_FOREVER, icon_color="red", on_click=lambda e, x=idm: (db.deletar_meta(x), atualizar_metas()))], alignment="spaceBetween"),
+                    ft.ProgressBar(value=prog, color=cor_barra, bgcolor="#222", height=8),
+                    ft.Row([ft.Text(f"R$ {atual:,.0f}"), ft.Text(f"{int(prog*100)}%", color=cor_barra)], alignment="spaceBetween"),
+                    ft.Row([
+                        ft.TextField(label="R$", width=100, height=40, text_size=12, bgcolor="#000"),
+                        ft.TextButton("Depositar", on_click=lambda e, idx=idm, f=lista_metas.controls: (db.atualizar_meta(idx, float(e.control.data.value)), atualizar_metas()))
+                    ], alignment="end")
+                ]), bgcolor="#111", padding=15, border_radius=10))
+                # Link para o TextField
                 lista_metas.controls[-1].content.controls[3].controls[1].data = lista_metas.controls[-1].content.controls[3].controls[0]
             try: lista_metas.update()
             except: pass
         
-        txt_nome = ft.TextField(label="Meta", hint_text="Ex: Viagem...", bgcolor="#1f1f1f", border_radius=8)
-        txt_alvo = ft.TextField(label="Alvo", hint_text="Total", keyboard_type="number", bgcolor="#1f1f1f", border_radius=8)
-        btn_criar = ft.Container(content=ft.Text("CRIAR", weight="bold"), bgcolor="#007ACC", padding=15, alignment=ft.Alignment(0, 0), border_radius=8, on_click=lambda e: (db.criar_meta(txt_nome.value, float(txt_alvo.value.replace(",","."))), atualizar_metas()))
-        layout = ft.Column([ft.Text("Cofrinhos", size=20, weight="bold"), lista_metas, ft.Divider(), ft.Text("Nova Meta", size=16), txt_nome, txt_alvo, btn_criar], expand=True, spacing=15)
+        txt_n = ft.TextField(label="Nome da Meta", bgcolor="#111"); txt_a = ft.TextField(label="Valor Alvo", bgcolor="#111")
+        layout = ft.Column([ft.Text("COFRINHOS", weight="bold", color="grey"), lista_metas, ft.ExpansionTile(title=ft.Text("Nova Meta", color="grey"), controls=[ft.Column([txt_n, txt_a, ft.ElevatedButton("Criar Meta", on_click=lambda e: (db.criar_meta(txt_n.value, float(txt_a.value)), atualizar_metas()))])])], expand=True)
         atualizar_metas()
-        return ft.Container(content=layout, expand=True)
-
-    def tela_simulador():
-        def calcular(e):
-            try:
-                receita = float(txt_receita.value.replace(",", ".") or 0)
-                gastos = sum(float(x.value.replace(",", ".") or 0) for x in [txt_g1, txt_g2, txt_g3])
-                sobra = receita - gastos
-                lbl_res.value = f"Sobra: R$ {sobra:,.2f}"
-                lbl_res.color = "#00FF7F" if sobra >= 0 else "#FF5555"
-                page.update()
-            except: pass
-        
-        txt_receita = ft.TextField(label="Renda", hint_text="Salário", bgcolor="#1f1f1f", border_radius=8); txt_receita.on_change = calcular
-        txt_g1 = ft.TextField(label="Gasto 1", hint_text="Fixo", bgcolor="#1f1f1f", border_radius=8); txt_g1.on_change = calcular
-        txt_g2 = ft.TextField(label="Gasto 2", hint_text="Variável", bgcolor="#1f1f1f", border_radius=8); txt_g2.on_change = calcular
-        txt_g3 = ft.TextField(label="Gasto 3", hint_text="Outros", bgcolor="#1f1f1f", border_radius=8); txt_g3.on_change = calcular
-        lbl_res = ft.Text("Sobra: R$ 0,00", size=20, weight="bold")
-        layout = ft.Column([ft.Text("Simulador", size=20, weight="bold"), ft.Divider(), txt_receita, ft.Text("Despesas"), txt_g1, txt_g2, txt_g3, ft.Divider(), ft.Container(content=lbl_res, bgcolor="#1A1A1A", padding=20, border_radius=10, alignment=ft.Alignment(0, 0))], scroll="auto", spacing=15)
         return ft.Container(content=layout, expand=True)
 
     def mudar_tela(index):
         menu_estado["atual"] = index
-        conteudo_principal.content = [tela_extrato(), tela_cofrinho(), tela_simulador()][index]
+        telas = [tela_extrato(), tela_cofrinho(), ft.Text("Simulador em breve...")]
+        conteudo_principal.content = telas[index]
         redesenhar_botoes()
         page.update()
 
@@ -251,28 +239,36 @@ def main(page: ft.Page):
         c1 = "#007ACC" if idx == 1 else "grey"
         c2 = "#007ACC" if idx == 2 else "grey"
         barra_inferior.content = ft.Row([
-            ft.Container(content=ft.Column([ft.Text("☰", color=c0, size=24), ft.Text("Extrato", color=c0, size=10)], alignment="center", horizontal_alignment="center", spacing=2), on_click=lambda e: mudar_tela(0), expand=True, padding=5),
-            ft.Container(content=ft.Column([ft.Text("$", color=c1, size=24, weight="bold"), ft.Text("Cofrinho", color=c1, size=10)], alignment="center", horizontal_alignment="center", spacing=2), on_click=lambda e: mudar_tela(1), expand=True, padding=5),
-            ft.Container(content=ft.Column([ft.Text("∑", color=c2, size=24, weight="bold"), ft.Text("Simular", color=c2, size=10)], alignment="center", horizontal_alignment="center", spacing=2), on_click=lambda e: mudar_tela(2), expand=True, padding=5),
+            ft.Container(content=ft.Column([ft.Icon(ft.Icons.LIST_ALT, color=c0), ft.Text("Extrato", color=c0, size=10)], alignment="center", spacing=2), on_click=lambda e: mudar_tela(0), expand=True),
+            ft.Container(content=ft.Column([ft.Icon(ft.Icons.SAVINGS_OUTLINED, color=c1), ft.Text("Cofrinho", color=c1, size=10)], alignment="center", spacing=2), on_click=lambda e: mudar_tela(1), expand=True),
+            ft.Container(content=ft.Column([ft.Icon(ft.Icons.ANALYTICS_OUTLINED, color=c2), ft.Text("Simular", color=c2, size=10)], alignment="center", spacing=2), on_click=lambda e: mudar_tela(2), expand=True),
         ], alignment="spaceEvenly")
 
-    barra_inferior = ft.Container(height=70, bgcolor="#111111", border=ft.border.only(top=ft.BorderSide(1, "#333333")), alignment=ft.Alignment(0, 0))
+    # --- ASSINATURA ANDYP ---
+    assinatura = ft.Container(
+        content=ft.Text("Powered by AndyP", size=10, color="#333333", italic=True, weight="w300"),
+        alignment=ft.alignment.center,
+        margin=ft.margin.only(bottom=5)
+    )
+
+    barra_inferior = ft.Container(height=65, bgcolor="#000000", border=ft.border.only(top=ft.BorderSide(0.5, "#222")), alignment=ft.Alignment(0, 0))
 
     redesenhar_botoes() 
     conteudo_principal.content = tela_extrato() 
 
-    # === IMAGEM DE FUNDO (FIX: STRING PURA "COVER") ===
+    # === IMAGEM DE FUNDO (SINCRONIZADA COM ÍCONE) ===
     imagem_fundo = ft.Image(
-        src="https://img.freepik.com/free-photo/abstract-luxury-gradient-blue-background-smooth-dark-blue-with-black-vignette_1258-48251.jpg",
-        fit="cover", # <--- AQUI ESTAVA O ERRO, AGORA É STRING
-        opacity=0.1 
+        src="icone.png", # <--- Vai usar o seu novo ícone como marca d'água
+        fit="contain",
+        opacity=0.05 # Quase invisível, para ficar elegante
     )
 
     page.add(
         ft.Stack([
-            imagem_fundo, 
+            ft.Container(imagem_fundo, alignment=ft.alignment.center), 
             ft.Column([   
                 conteudo_principal, 
+                assinatura, # <--- A assinatura aparecendo aqui sutilmente
                 barra_inferior      
             ], expand=True, spacing=0)
         ], expand=True)
@@ -280,4 +276,3 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.app(target=main)
-
