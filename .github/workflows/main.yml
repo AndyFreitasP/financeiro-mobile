@@ -23,14 +23,19 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install flet
+          # O requirements agora tem fpdf2
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Accept Android Licenses
+        run: |
+          # Aceita as licenças do Android automaticamente
+          yes | sdkmanager --licenses || true
 
       - name: Build APK
         run: |
-          # O comando --yes força a instalação do Flutter sem perguntar nada
+          # Build silencioso e automático
           flet build apk --verbose --yes
         env:
-          # Isso ajuda o robô a aceitar licenças silenciosamente
           FLUTTER_ROOT: ${{ runner.tool_cache }}/flutter
 
       - name: Upload APK
