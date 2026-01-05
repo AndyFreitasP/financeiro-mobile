@@ -2,6 +2,8 @@ import flet as ft
 import sqlite3
 from datetime import datetime
 from fpdf import FPDF
+# Nota: O comando de importação continua igual, 
+# mas vamos mudar como o robô instala ela.
 import os
 
 # ==============================================================================
@@ -278,3 +280,4 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.app(target=main)
+
