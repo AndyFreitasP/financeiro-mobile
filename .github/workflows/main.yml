@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch: # Permite rodar manualmente clicando num botão
 
 jobs:
   build:
@@ -13,21 +14,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Android precisa de Java. O Flet usa o Gradle por trás.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # Flet é um wrapper do Flutter. Sem Flutter, sem APK.
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install Flet
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install flet
 
       - name: Build APK
         run: |
-          flet build apk --verbose --yes \
+          # O comando flet build baixa o template do Flutter e compila
+          flet build apk --verbose \
             --product "Andy Financeiro" \
-            --icon icone.png \
-            --splash icone.png \
+            --org "com.andyfinanceiro.app" \
+            --project "andy_financeiro" \
+            --icon "icone.png" \
+            --splash "icone.png" \
             --splash-color "#000000" \
-            --assets "icone.png"
+            --include-packages flet \
+            --build-version "1.0.0" \
+            --build-number "1"
+
+      # Passo CRÍTICO: Salvar o APK gerado
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: andy-financeiro-release
+          path: build/apk/app-release.apk
