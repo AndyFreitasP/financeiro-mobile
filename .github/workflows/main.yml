@@ -23,23 +23,28 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install flet
-          # O requirements agora tem fpdf2
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Accept Android Licenses
         run: |
-          # Aceita as licenças do Android automaticamente
           yes | sdkmanager --licenses || true
 
       - name: Build APK
         run: |
-          # Build silencioso e automático
-          flet build apk --verbose --yes
+          # --product: Define o nome que aparece abaixo do ícone no celular
+          # --icon: Define a imagem que você subiu como ícone oficial
+          # --splash: Define a imagem da tela de carregamento (substitui o logo do Flet)
+          # --splash-color: Define o fundo preto para combinar com a imagem
+          flet build apk --verbose --yes \
+            --product "Andy Financeiro" \
+            --icon icone.png \
+            --splash icone.png \
+            --splash-color "#000000"
         env:
           FLUTTER_ROOT: ${{ runner.tool_cache }}/flutter
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: financeiro-app
+          name: Andy-Financeiro-Pro
           path: build/apk/*.apk
