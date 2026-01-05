@@ -26,7 +26,8 @@ jobs:
 
       - name: Build APK
         run: |
-          flet build apk --verbose
+          # AQUI ESTA A CORRECAO: Adicionei o nome do seu arquivo
+          flet build apk --verbose app_financeiro.py
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
