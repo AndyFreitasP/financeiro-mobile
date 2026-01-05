@@ -7,15 +7,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -24,14 +24,23 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          # Removi a versão fixa para evitar conflitos com o flet-cli
 
       - name: Install Dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install flet fpdf google-generativeai
 
       - name: Build APK
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # O comando 'yes' responde automaticamente 'y' para qualquer pergunta do sistema
-          yes | flet build apk --verbose
+          # A flag --yes evita a parada por input (EOFError)
+          flet build apk --verbose --yes
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          # O Flet costuma gerar o APK dentro de build/apk ou dist
+          path: build/apk/*.apk
