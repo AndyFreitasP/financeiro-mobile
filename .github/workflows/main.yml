@@ -1,50 +1,33 @@
-name: Build Android APK
+name: Build APK
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install Dependencies
+      - name: Install Flet
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install flet
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-      - name: Accept Android Licenses
-        run: |
-          yes | sdkmanager --licenses || true
 
       - name: Build APK
         run: |
-          # --product: Define o nome que aparece abaixo do ícone no celular
-          # --icon: Define a imagem que você subiu como ícone oficial
-          # --splash: Define a imagem da tela de carregamento (substitui o logo do Flet)
-          # --splash-color: Define o fundo preto para combinar com a imagem
           flet build apk --verbose --yes \
             --product "Andy Financeiro" \
             --icon icone.png \
             --splash icone.png \
-            --splash-color "#000000"
-        env:
-          FLUTTER_ROOT: ${{ runner.tool_cache }}/flutter
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Andy-Financeiro-Pro
-          path: build/apk/*.apk
+            --splash-color "#000000" \
+            --assets "icone.png"
