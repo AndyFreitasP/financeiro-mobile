@@ -1,43 +1,23 @@
-name: Build Android APK
-
+name: Build Flet APK
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Setup Python
+      - name: Install Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       - name: Install Dependencies
         run: |
-          pip install --upgrade pip
-          pip install flet
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-      - name: Accept Android Licenses
-        run: |
-          yes | sdkmanager --licenses || true
+          pip install flet fpdf google-generativeai
 
       - name: Build APK
         run: |
-          # Comando limpo. O Flet usará assets/icon.png automaticamente se existir.
-          flet build apk --verbose --yes --product "Andy Financeiro" 
-        env:
-          FLUTTER_ROOT: ${{ runner.tool_cache }}/flutter
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Andy-Financeiro-Final
-          path: build/apk/*.apk
+          flet build apk --verbose
