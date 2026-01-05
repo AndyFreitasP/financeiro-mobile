@@ -1,27 +1,31 @@
 import flet as ft
 
 def main(page: ft.Page):
+    # Configurações para Mobile
     page.title = "Andy Financeiro"
-    page.bgcolor = "#050505" # Preto absoluto cansa a vista, use um off-black
-    page.window_maximized = True
+    page.bgcolor = "#111111" # Cinza muito escuro (menos agressivo que preto puro)
     page.padding = 0
-    
-    # Validação visual (Feedback para o usuário)
+    page.theme_mode = ft.ThemeMode.DARK # Força modo escuro nativo
+
+    # Feedback visual ao clicar
     def login_click(e):
         if not user_input.value:
-            user_input.error_text = "Quem é você?"
+            user_input.error_text = "Digite o usuário"
             user_input.update()
         else:
-            page.snack_bar = ft.SnackBar(ft.Text(f"Acessando cofre de {user_input.value}..."))
+            btn_entrar.content = ft.ProgressRing(width=20, height=20, color="black")
+            btn_entrar.update()
+            # Simulação de login
+            page.snack_bar = ft.SnackBar(ft.Text(f"Bem-vindo, {user_input.value}!"))
             page.snack_bar.open = True
             page.update()
 
-    # Elementos de UI
+    # Campos de Entrada (Otimizados)
     user_input = ft.TextField(
         label="Usuário",
-        border_color="white24",
+        border_color="#333333",
         text_style=ft.TextStyle(color="white"),
-        label_style=ft.TextStyle(color="white54"),
+        label_style=ft.TextStyle(color="grey"),
         cursor_color="white",
         width=280,
     )
@@ -30,81 +34,70 @@ def main(page: ft.Page):
         label="Senha",
         password=True,
         can_reveal_password=True,
-        border_color="white24",
+        border_color="#333333",
         text_style=ft.TextStyle(color="white"),
-        label_style=ft.TextStyle(color="white54"),
+        label_style=ft.TextStyle(color="grey"),
         cursor_color="white",
         width=280,
     )
 
     btn_entrar = ft.ElevatedButton(
-        text="ACESSAR SISTEMA",
-        color="black",
+        content=ft.Text("ACESSAR", color="black"),
         bgcolor="white",
         width=280,
         height=45,
         style=ft.ButtonStyle(
-            shape=ft.RoundedRectangleBorder(radius=5),
+            shape=ft.RoundedRectangleBorder(radius=8),
         ),
         on_click=login_click
     )
 
-    # O "Cartão" Central (Glassmorphism)
+    # Cartão de Login (SEM BLUR - Leve para o processador)
     login_card = ft.Container(
-        width=350,
-        padding=40,
-        border_radius=15,
-        bgcolor=ft.colors.with_opacity(0.05, ft.colors.WHITE),
-        blur=ft.Blur(10, 10), # O efeito de vidro
-        border=ft.border.all(1, ft.colors.with_opacity(0.1, ft.colors.WHITE)),
+        width=320,
+        padding=30,
+        border_radius=20,
+        bgcolor="#1A1A1A", # Cor sólida em vez de vidro fosco pesado
+        border=ft.border.all(1, "#333333"),
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=20,
             controls=[
-                ft.Icon(ft.icons.ACCOUNT_BALANCE_WALLET_OUTLINED, size=50, color="white"),
-                ft.Text("Andy Financeiro", size=24, weight="bold", color="white"),
+                ft.Icon(ft.icons.SHIELD_MOON_OUTLINED, size=60, color="white"),
+                ft.Text("Andy Financeiro", size=22, weight="bold", color="white"),
                 ft.Divider(color="transparent", height=10),
                 user_input,
                 password_input,
                 ft.Divider(color="transparent", height=10),
                 btn_entrar,
-                ft.Text("v.1.0.0", size=10, color="white24"),
             ]
         )
     )
 
-    # Imagem de fundo (Tratamento de erro se não existir)
-    background_stack = [
-        ft.Container(expand=True, bgcolor="#000000") # Fundo base caso a imagem falhe
-    ]
-    
-    try:
-        background_image = ft.Image(
-            src="icone.png",
-            fit=ft.ImageFit.COVER, # Cover preenche melhor que Contain
-            opacity=0.2,
-            expand=True,
-        )
-        background_stack.append(background_image)
-    except:
-        pass # Segue sem imagem
+    # Imagem de fundo com opacidade baixa (Tratamento de erro simples)
+    # A imagem precisa estar na pasta 'assets' criada pelo GitHub Actions
+    fundo = ft.Image(
+        src="icon.png", # O GitHub renomeou para icon.png na pasta assets
+        fit=ft.ImageFit.COVER,
+        opacity=0.1,
+        expand=True,
+        error_content=ft.Container(bgcolor="#111111") # Se falhar, fica cinza
+    )
 
-    # Montagem da Tela
-    background_stack.append(
-        ft.Row(
+    # Montagem da tela usando Stack
+    page.add(
+        ft.Stack(
             expand=True,
-            alignment=ft.MainAxisAlignment.CENTER,
             controls=[
-                ft.Column(
+                fundo,
+                ft.Container(
                     expand=True,
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[login_card]
+                    alignment=ft.alignment.center,
+                    content=login_card
                 )
             ]
         )
     )
 
-    page.add(ft.Stack(expand=True, controls=background_stack))
-
-ft.app(target=main)
+# CRUCIAL: assets_dir="assets" diz ao Android onde buscar as imagens
+ft.app(target=main, assets_dir="assets")
