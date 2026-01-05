@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Android APK
 
 on:
   push:
@@ -11,67 +11,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      # 1. Configurar Java (Essencial para Android Gradle)
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          python-version: '3.11'
 
-      # 2. Configurar Flutter (Motor do Flet)
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      # 3. Configurar Python
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      # 4. Diagnóstico de Arquivos (BLINDAGEM)
-      # Isso vai listar seus arquivos no log. Se o build falhar dizendo que não achou "main.py",
-      # olhe esse passo no log para ver qual nome real do seu arquivo.
-      - name: Debug File Structure
-        run: |
-          ls -R
-
-      # 5. Instalar Dependências
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install flet
-          # Garante que existe um requirements.txt para o Flet não reclamar
-          if [ ! -f requirements.txt ]; then echo "flet" > requirements.txt; fi
+          # Garante a instalacao do requirements correto
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # 6. Preparar Ícone (BLINDAGEM DE ASSETS)
-      # Cria a pasta que o Flet exige e move o ícone pra lá.
-      # O "|| true" impede que o build falhe se você esqueceu de subir a imagem.
-      - name: Prepare Assets
+      - name: Accept Android Licenses
         run: |
-          mkdir -p assets
-          cp icone.png assets/icon.png || echo "⚠️ AVISO: icone.png não encontrado na raiz. O app ficará com ícone padrão."
+          yes | sdkmanager --licenses || true
 
-      # 7. Compilar APK (CORREÇÃO CRÍTICA)
-      # Removido o ponto final "." e removidos argumentos conflitantes.
-      # O comando assume o diretório atual por padrão.
       - name: Build APK
         run: |
           flet build apk --verbose --yes \
             --product "Andy Financeiro" \
-            --org "com.andyfinanceiro.app" \
-            --project "andy_financeiro" \
-            --splash-color "#000000" \
-            --build-version "1.0.0" \
-            --build-number "1"
+            --icon icone.png \
+            --splash icone.png \
+            --splash-color "#000000"
+        env:
+          FLUTTER_ROOT: ${{ runner.tool_cache }}/flutter
 
-      # 8. Salvar o Resultado
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: andy-financeiro-apk
-          path: build/apk/app-release.apk
+          name: Andy-Financeiro-Pro
+          path: build/apk/*.apk
