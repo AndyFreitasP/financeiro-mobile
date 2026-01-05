@@ -31,15 +31,13 @@ jobs:
 
       - name: Build APK
         run: |
-          # Flet vai buscar automaticamente por 'icon.png' na raiz
-          flet build apk --verbose --yes \
-            --product "Andy Financeiro" \
-            --splash-color "#000000"
+          # Comando limpo. O Flet usará assets/icon.png automaticamente se existir.
+          flet build apk --verbose --yes --product "Andy Financeiro" 
         env:
           FLUTTER_ROOT: ${{ runner.tool_cache }}/flutter
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Andy-Financeiro-Pro
+          name: Andy-Financeiro-Final
           path: build/apk/*.apk
