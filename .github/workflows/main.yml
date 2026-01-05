@@ -19,5 +19,7 @@ jobs:
           pip install flet fpdf google-generativeai
 
       - name: Build APK
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # PUXA A CHAVE QUE VOCÊ OCULTOU
         run: |
           flet build apk --verbose
