@@ -14,14 +14,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. Configurar Java (Necessário para Android SDK)
+      # 1. Configurar Java
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 2. Configurar Flutter (Engine do Flet)
+      # 2. Configurar Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -44,17 +44,16 @@ jobs:
         env:
           SECRET_KEY: ${{ secrets.GEMINI_KEY }}
         run: |
-          # Substitui a chave exata que está no seu main.py pela do GitHub Secrets
           sed -i "s/AIzaSyBtR6YjyGJLD-KY6jQoFpKyBZHMSH_PEnE/$SECRET_KEY/g" main.py
 
-      # 6. Preparar Ícones (Move para a pasta assets se necessário)
+      # 6. Preparar Ícones
       - name: Prepare Assets
         run: |
           mkdir -p assets
           if [ -f icon.png ]; then cp icon.png assets/icon.png; fi
           ls -R assets
 
-      # 7. Compilar APK
+      # 7. Compilar APK (CORRIGIDO: REMOVIDO O PONTO FINAL)
       - name: Build APK
         run: |
           flet build apk --verbose --yes \
@@ -63,8 +62,7 @@ jobs:
             --project "finantea" \
             --description "Finantea - Gestão Financeira com IA" \
             --build-version "1.0.0" \
-            --build-number "1" \
-            .
+            --build-number "1"
 
       # 8. Upload do APK gerado
       - name: Upload APK
