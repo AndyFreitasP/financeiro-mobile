@@ -1,46 +1,61 @@
-name: Build Flet APK
+name: Build Finantea APK
+
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
+      # Setup Java (Necessário para Android SDK)
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
+      # Setup Flutter (Base do Flet)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          # Removi a versão fixa para evitar conflitos com o flet-cli
 
+      # Setup Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Instalar Dependências
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flet fpdf google-generativeai
+          pip install -r requirements.txt
 
+      # Compilar APK
+      # Nota: O Flet usará o diretório "assets" automaticamente para ícones
+      # se estiver configurado corretamente no main.py ou na estrutura.
       - name: Build APK
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # A flag --yes evita a parada por input (EOFError)
-          flet build apk --verbose --yes
+          flet build apk --verbose \
+            --product "Finantea" \
+            --org "com.andyp.finantea" \
+            --project "finantea" \
+            --description "Finantea App Financeiro" \
+            --include-packages flet \
+            --build-version "1.0.0" \
+            --build-number "1"
 
+      # Upload do APK gerado
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          # O Flet costuma gerar o APK dentro de build/apk ou dist
-          path: build/apk/*.apk
+          name: Finantea-APK
+          path: build/apk/app-release.apk
