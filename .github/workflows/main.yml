@@ -35,13 +35,12 @@ jobs:
           pip install --upgrade pip
           pip install flet
           pip install fpdf
-          # REMOVIDO: pip install python-dotenv (Não é mais necessário)
+          # Dotenv foi removido do código, não instale aqui.
 
       - name: Build APK
         run: |
           yes | flet build apk --verbose
 
-      # Procura o arquivo 'app-release.apk' e renomeia para 'Finantea.apk'
       - name: Locate and Rename APK
         run: |
           find . -name "app-release.apk" -exec cp {} Finantea.apk \;
