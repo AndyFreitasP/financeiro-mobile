@@ -27,27 +27,23 @@ except: pass
 def carregar_env_manual():
     """Lê o arquivo .env linha por linha sem precisar de bibliotecas extras."""
     try:
-        # Tenta achar o .env na pasta atual
         env_path = os.path.join(os.getcwd(), ".env")
         if os.path.exists(env_path):
             with open(env_path, "r") as f:
                 for linha in f:
                     linha = linha.strip()
-                    # Ignora comentários ou linhas vazias
                     if not linha or linha.startswith("#") or "=" not in linha:
                         continue
                     chave, valor = linha.split("=", 1)
                     os.environ[chave] = valor
     except Exception as e:
-        print(f"Nota: .env não carregado ou inexistente ({e})")
+        print(f"Nota: .env não carregado ({e})")
 
-# Executa o carregamento antes de tudo
 carregar_env_manual()
 
 # ==============================================================================
 # 1. IA LITE BLINDADA
 # ==============================================================================
-# Tenta pegar a chave do ambiente (seja do .env manual ou das Secrets do GitHub)
 API_KEY = os.getenv("API_KEY", "") 
 TEM_IA = True
 
@@ -159,7 +155,6 @@ class RelatorioPDF(FPDF):
 def gerar_pdf(dados, mes):
     try:
         nome = f"extrato_{mes.replace('/','_')}.pdf"
-        # No Android, salvamos temporariamente
         pdf = RelatorioPDF(); pdf.add_page(); pdf.set_text_color(0); pdf.set_font("Arial", "B", 12)
         pdf.cell(0, 10, f"Referencia: {mes}", ln=True); pdf.ln(2)
         pdf.set_fill_color(240); pdf.set_font("Arial", "B", 10)
@@ -319,38 +314,4 @@ def main(page: ft.Page):
     def tela_ferramentas():
         t_renda = ft.TextField(label="Renda Mensal", value=formatar_moeda_visual(get_renda()), width=150, on_change=mascara_dinheiro)
         def salvar_renda(e): set_renda(limpar_valor(t_renda.value)); notificar("Renda atualizada.")
-        box_perfil = ft.Container(content=ft.Row([t_renda, ft.ElevatedButton("Atualizar", on_click=salvar_renda)]), bgcolor="#1e293b", padding=15, border_radius=10)
-
-        t_tot = ft.TextField(label="Total Compra", width=120, on_change=mascara_dinheiro)
-        t_pag = ft.TextField(label="Valor Pago", width=120, on_change=mascara_dinheiro)
-        res = ft.Text("Troco: R$ 0,00", size=16, weight="bold")
-        def calc_troco(e): tr = limpar_valor(t_pag.value) - limpar_valor(t_tot.value); res.value = f"Troco: {formatar_moeda_visual(tr)}"; res.color = "green" if tr >= 0 else "red"; page.update()
-        box_troco = ft.Container(content=ft.Column([ft.Text("Calculadora de Troco"), ft.Row([t_tot, t_pag, ft.ElevatedButton("=", on_click=calc_troco)], wrap=True), res]), bgcolor="#1e293b", padding=15, border_radius=10)
-
-        j_val = ft.TextField(label="Valor Compra", width=120, on_change=mascara_dinheiro); j_taxa = ft.TextField(label="Juros (%)", width=120); j_parc = ft.TextField(label="Parcelas", width=80)
-        j_res = ft.Text("Vale a pena parcelar?", color="grey")
-        def calc_juros(e):
-            try:
-                v = limpar_valor(j_val.value); i = float(j_taxa.value.replace(",", "."))/100; n = int(j_parc.value); tot = v * ((1+i)**n); jur = tot - v
-                j_res.value = f"Total Final: {formatar_moeda_visual(tot)}\nVocê paga só de Juros: {formatar_moeda_visual(jur)} ⚠️"; j_res.color = "#f87171"; page.update()
-            except: pass
-        box_juros = ft.Container(content=ft.Column([ft.Text("Calculadora de Juros"), ft.Row([j_val, j_taxa, j_parc], wrap=True), ft.ElevatedButton("Calcular Juros", on_click=calc_juros, bgcolor="#f87171", color="white"), j_res]), bgcolor="#1e293b", padding=15, border_radius=10)
-
-        t_dica = ft.Text("Dica Financeira (IA)", weight="bold", color=COR_PRINCIPAL); c_dica = ft.Text("", size=12)
-        def carregar_dica(e):
-            t_dica.value = "Consultando..."; page.update(); 
-            dados_ia, cor = obter_dica_ia(); titulo, texto = dados_ia
-            t_dica.value = titulo; c_dica.value = texto; page.update()
-        box_ia = ft.Container(content=ft.Column([ft.Row([t_dica, ft.IconButton(icon="auto_awesome", icon_color=COR_PRINCIPAL, on_click=carregar_dica)], alignment="spaceBetween"), c_dica]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, COR_PRINCIPAL)))
-
-        t_agencia = ft.TextField(label="Ex: Pagar Net 120 dia 15", expand=True)
-        def agendar_ia(e):
-            d = interpretar_comando(t_agencia.value)
-            if d:
-                criar_lembrete(d.get('nome','Conta'), d.get('data',''), d.get('valor',0)); t_agencia.value=""; notificar("Anotado!")
-                try: page.launch_url(f"https://calendar.google.com/calendar/render?action=TEMPLATE&text={urllib.parse.quote(d.get('nome','Conta'))}&details=Valor:{d.get('valor')}")
-                except: pass
-            else: notificar("Não entendi.", "red")
-        box_agendador = ft.Container(content=ft.Column([ft.Text("Agendar boleto"), ft.Row([t_agencia, ft.IconButton(icon="auto_fix_high", icon_color=COR_PRINCIPAL, on_click=agendar_ia)])]), bgcolor="#1e293b", padding=15, border_radius=10)
-
-        t_faq = ft.TextField(label="Pergunte...", expand=True); r_
+        box_perfil = ft.Container(content=ft.Row(
