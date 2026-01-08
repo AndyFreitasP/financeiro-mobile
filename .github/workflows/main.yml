@@ -14,7 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Configura o Java 17 (Obrigatório para Android builds novos)
+      # 2. Configura o Java 17 (Obrigatório para o Android SDK atual)
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 4. Configura o Flutter (Modo Stable para evitar erro de versão antiga)
+      # 4. Configura o Flutter (Stable)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -40,16 +40,20 @@ jobs:
           pip install --upgrade pip
           pip install flet
           pip install fpdf
-          # O dotenv foi removido do código, não precisa instalar
+          # Dependências do seu requirements.txt se houver
 
-      # 6. Compila o APK (Com correção 'yes' para pular perguntas)
+      # 6. Compila o APK (Com 'yes' para aceitar licenças automaticamente)
       - name: Build APK
         run: |
           yes | flet build apk --verbose
 
-      # 7. Salva o APK para download
+      # 7. (DEBUG) Mostra onde o arquivo foi gerado no log
+      - name: List APKs (Debug)
+        run: find . -name "*.apk"
+
+      # 8. Salva qualquer APK encontrado
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: finantea-app
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: "**/*.apk"
