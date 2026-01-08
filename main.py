@@ -11,16 +11,14 @@ import warnings
 import logging
 
 # ==============================================================================
-# 0. CONFIGURAÇÃO (SEM IMPORTAR DOTENV)
+# 0. CONFIGURAÇÃO (NATIVO - SEM DOTENV)
 # ==============================================================================
-# Removemos a linha "from dotenv..." que causava o erro no Android.
-
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 warnings.filterwarnings("ignore")
 logging.getLogger("flet").setLevel(logging.ERROR)
 
 DB_NAME = "dados_financeiros.db"
-# No Android, criamos a pasta apenas se tivermos permissão, senão o DB fica na raiz
+# No Android, criamos a pasta apenas se tivermos permissão
 try:
     if not os.path.exists("comprovantes"): os.makedirs("comprovantes")
 except: pass
@@ -161,8 +159,7 @@ class RelatorioPDF(FPDF):
 def gerar_pdf(dados, mes):
     try:
         nome = f"extrato_{mes.replace('/','_')}.pdf"
-        # No Android, salvamos temporariamente. O usuário não acessa direto, 
-        # mas o Flet precisa do arquivo para abrir.
+        # No Android, salvamos temporariamente
         pdf = RelatorioPDF(); pdf.add_page(); pdf.set_text_color(0); pdf.set_font("Arial", "B", 12)
         pdf.cell(0, 10, f"Referencia: {mes}", ln=True); pdf.ln(2)
         pdf.set_fill_color(240); pdf.set_font("Arial", "B", 10)
@@ -251,13 +248,10 @@ def main(page: ft.Page):
         dd_mes = ft.Dropdown(width=150, options=[ft.dropdown.Option(m) for m in meses], value=mes_atual)
 
         def render():
-            dados = listar(dd_mes.value)
-            ent = sum(r[5] for r in dados if r[5]>0); sai = abs(sum(r[5] for r in dados if r[5]<0)); bal = ent-sai
-            txt_ganhou.value = f"Entradas: {formatar_moeda_visual(ent)}"
-            txt_gastou.value = f"Saídas: {formatar_moeda_visual(sai)}"
+            dados = listar(dd_mes.value); ent = sum(r[5] for r in dados if r[5]>0); sai = abs(sum(r[5] for r in dados if r[5]<0)); bal = ent-sai
+            txt_ganhou.value = f"Entradas: {formatar_moeda_visual(ent)}"; txt_gastou.value = f"Saídas: {formatar_moeda_visual(sai)}"
             txt_saldo.value = f"Saldo Positivo: {formatar_moeda_visual(bal)}" if bal >= 0 else f"Saldo Negativo: {formatar_moeda_visual(abs(bal))}"
             txt_saldo.color = "#4ade80" if bal >= 0 else "#f87171"
-            
             lista.controls.clear()
             for r in dados:
                 cor = "#f87171" if r[5]<0 else "#4ade80"
@@ -359,36 +353,4 @@ def main(page: ft.Page):
             else: notificar("Não entendi.", "red")
         box_agendador = ft.Container(content=ft.Column([ft.Text("Agendar boleto"), ft.Row([t_agencia, ft.IconButton(icon="auto_fix_high", icon_color=COR_PRINCIPAL, on_click=agendar_ia)])]), bgcolor="#1e293b", padding=15, border_radius=10)
 
-        t_faq = ft.TextField(label="Pergunte...", expand=True); r_faq = ft.Text("")
-        def perguntar(e):
-            r_faq.value = "Pensando..."; page.update(); txt = chamar_gemini(f"Responda curto e literal: {t_faq.value}"); r_faq.value = txt if txt else "Erro."; page.update()
-        box_faq = ft.Container(content=ft.Column([ft.Text("Dúvida Inteligente", weight="bold"), ft.Row([t_faq, ft.IconButton(icon="send", on_click=perguntar)]), r_faq]), bgcolor="#1e293b", padding=15, border_radius=10)
-
-        def doar(e): page.set_clipboard("SUA_CHAVE_PIX_AQUI"); notificar("Pix Copiado!")
-        box_doar = ft.Container(content=ft.Row([ft.ElevatedButton("Doar Café ☕", on_click=doar, bgcolor="#fbbf24", color="black")]), bgcolor="#1e293b", padding=15, border_radius=10)
-
-        return ft.SafeArea(content=ft.Container(padding=20, content=ft.Column([
-            ft.Text("Ferramentas", size=24, weight="bold"), box_perfil, ft.Container(height=10),
-            box_troco, ft.Container(height=10), box_juros, ft.Container(height=10),
-            box_ia, ft.Container(height=10), box_agendador, ft.Container(height=10),
-            box_faq, ft.Container(height=10), box_doar, ft.Container(height=20), barra_simbolos()
-        ], scroll=ft.ScrollMode.AUTO), expand=True))
-
-    # --- MENU GAVETA ---
-    page.drawer = ft.NavigationDrawer(bgcolor="#1e293b", indicator_color=COR_PRINCIPAL, controls=[
-        ft.Container(height=20), ft.Text("  FINANTEA", size=20, weight="bold", color="white"), ft.Divider(color="grey"),
-        ft.NavigationDrawerDestination(label="Extrato", icon="list"),
-        ft.NavigationDrawerDestination(label="Meus Objetivos", icon="savings"),
-        ft.NavigationDrawerDestination(label="Ferramentas", icon="build"),
-    ], on_change=lambda e: (mudar(e.control.selected_index), page.close_drawer()))
-
-    def abrir_menu(e): page.drawer.open = True; page.update()
-    page.appbar = ft.AppBar(leading=ft.IconButton(icon="menu", on_click=abrir_menu), title=ft.Text("Finantea"), bgcolor="#0f172a")
-    page.add(conteudo)
-
-    if not is_intro_ok(): conteudo.content = tela_onboarding()
-    else: conteudo.content = tela_extrato()
-    page.update()
-
-if __name__ == "__main__":
-    ft.app(target=main, assets_dir="assets")
+        t_faq = ft.TextField(label="Pergunte...", expand=True); r_
