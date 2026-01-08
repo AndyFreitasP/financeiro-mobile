@@ -10,50 +10,47 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Baixa o código
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Configura o Java 17 (Obrigatório para o Android SDK atual)
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. Configura o Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 4. Configura o Flutter (Stable)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
 
-      # 5. Instala o Flet e dependências
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
           pip install flet
           pip install fpdf
-          # Dependências do seu requirements.txt se houver
+          # Dependências extras aqui se precisar
 
-      # 6. Compila o APK (Com 'yes' para aceitar licenças automaticamente)
       - name: Build APK
         run: |
           yes | flet build apk --verbose
 
-      # 7. (DEBUG) Mostra onde o arquivo foi gerado no log
-      - name: List APKs (Debug)
-        run: find . -name "*.apk"
+      # --- O SEGREDO ESTÁ AQUI ---
+      # Este passo procura especificamente o 'app-release.apk' (que é o pequeno)
+      # e o copia para a raiz com o nome 'Finantea.apk'.
+      - name: Locate and Rename APK
+        run: |
+          find . -name "app-release.apk" -exec cp {} Finantea.apk \;
+          ls -lh Finantea.apk  # Mostra o tamanho do arquivo no log para você conferir
 
-      # 8. Salva qualquer APK encontrado
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: finantea-app
-          path: "**/*.apk"
+          name: Finantea-App
+          path: Finantea.apk
