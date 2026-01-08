@@ -14,24 +14,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Configura o Python
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      # 3. Configura o Java (Necessário para Android)
+      # 2. Configura o Java 17 (Obrigatório para Android builds novos)
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 4. Configura o Flutter (Motor do Flet Mobile)
+      # 3. Configura o Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 4. Configura o Flutter (Modo Stable para evitar erro de versão antiga)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
+          channel: 'stable'
+          cache: true
 
       # 5. Instala o Flet e dependências
       - name: Install Dependencies
@@ -39,12 +40,12 @@ jobs:
           pip install --upgrade pip
           pip install flet
           pip install fpdf
-          # O dotenv foi removido do código, então não precisa instalar aqui
+          # O dotenv foi removido do código, não precisa instalar
 
-      # 6. Compila o APK
+      # 6. Compila o APK (Com correção 'yes' para pular perguntas)
       - name: Build APK
         run: |
-          flet build apk --verbose
+          yes | flet build apk --verbose
 
       # 7. Salva o APK para download
       - name: Upload APK
