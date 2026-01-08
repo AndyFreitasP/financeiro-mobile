@@ -12,9 +12,11 @@ import logging
 from dotenv import load_dotenv
 
 # ==============================================================================
-# CONFIGURAÇÃO
+# 0. CONFIGURAÇÃO E SEGURANÇA
 # ==============================================================================
+# Carrega as variáveis de ambiente do arquivo .env (se existir)
 load_dotenv()
+
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 warnings.filterwarnings("ignore")
 logging.getLogger("flet").setLevel(logging.ERROR)
@@ -23,23 +25,20 @@ DB_NAME = "dados_financeiros.db"
 if not os.path.exists("comprovantes"): os.makedirs("comprovantes")
 
 # ==============================================================================
-# 1. IA LITE BLINDADA (SISTEMA DE TENTATIVA MÚLTIPLA)
+# 1. IA LITE BLINDADA (Compatível com Git)
 # ==============================================================================
-# Tenta pegar do .env, senão usa o fallback (mas prefira o .env!)
-API_KEY = os.getenv("API_KEY", "COLE_SUA_NOVA_CHAVE_AQUI")
+# O código busca a chave no sistema. Se não achar, usa uma string vazia (seguro para commit).
+API_KEY = os.getenv("API_KEY", "") 
 TEM_IA = True
 
 def chamar_gemini(prompt):
-    if "COLE_SUA" in API_KEY or not API_KEY:
-        print("AVISO: Chave API ausente.")
+    # Verifica se a chave é válida antes de tentar conectar
+    if not API_KEY or "COLE_SUA" in API_KEY:
+        print("AVISO: Chave API não configurada no arquivo .env")
         return None
     
-    # LISTA DE MODELOS PARA TENTAR (Se um falhar, tenta o próximo)
-    modelos_para_testar = [
-        "gemini-1.5-flash",       # Mais rápido e novo
-        "gemini-1.5-flash-001",   # Versão estável do flash
-        "gemini-pro"              # Clássico (funciona quase sempre)
-    ]
+    # Lista de modelos para tentativa (Fallback)
+    modelos_para_testar = ["gemini-1.5-flash", "gemini-pro"]
 
     for modelo in modelos_para_testar:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={API_KEY}"
@@ -50,25 +49,23 @@ def chamar_gemini(prompt):
             req = urllib.request.Request(url, data=json.dumps(data).encode('utf-8'), headers=headers, method='POST')
             with urllib.request.urlopen(req) as response:
                 res_json = json.loads(response.read().decode('utf-8'))
-                # Se chegou aqui, funcionou! Retorna a resposta.
                 if 'candidates' in res_json and res_json['candidates']:
                     return res_json['candidates'][0]['content']['parts'][0]['text']
         except urllib.error.HTTPError as e:
-            # Se for 404 (Modelo não encontrado), ignora e o loop tenta o próximo
-            if e.code == 404:
-                continue 
-            print(f"Erro HTTP ({modelo}): {e}")
+            if e.code == 404: continue # Tenta o próximo modelo
+            print(f"Erro HTTP IA ({modelo}): {e}")
         except Exception as e:
-            print(f"Erro Geral ({modelo}): {e}")
+            print(f"Erro Geral IA: {e}")
             
-    return "A IA não conseguiu responder no momento."
+    return "A IA não conseguiu responder. Verifique sua conexão."
 
 # ==============================================================================
-# 2. SISTEMA (DB + HELPERS)
+# 2. SISTEMA (BANCO DE DADOS E UTILITÁRIOS)
 # ==============================================================================
 def conectar_bd():
     conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     cursor = conn.cursor()
+    # Tabelas
     cursor.execute("CREATE TABLE IF NOT EXISTS financeiro (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, descricao TEXT, categoria TEXT, tipo TEXT, valor REAL)")
     cursor.execute("CREATE TABLE IF NOT EXISTS metas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, valor_alvo REAL, valor_atual REAL)")
     cursor.execute("CREATE TABLE IF NOT EXISTS lembretes (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, data_vencimento TEXT, valor REAL, status TEXT DEFAULT 'Pendente', anexo TEXT)")
@@ -92,7 +89,7 @@ def limpar_valor(texto):
 def formatar_moeda_visual(valor_float):
     return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# CRUD
+# --- Funções de Banco de Dados ---
 def adicionar(data, desc, cat, tipo, valor):
     v = abs(valor) * -1 if tipo == "Despesa" else abs(valor)
     cursor.execute("INSERT INTO financeiro (data, descricao, categoria, tipo, valor) VALUES (?, ?, ?, ?, ?)", (data, desc, cat, tipo, v)); conn.commit()
@@ -108,7 +105,7 @@ def get_meses():
         except: continue
     now = datetime.now(); m.add((now.year, now.month)); return [f"{mm:02d}/{y}" for y, mm in sorted(list(m))]
 
-# Metas & Lembretes
+# Metas, Lembretes e Perfil
 def criar_meta(n, a): cursor.execute("INSERT INTO metas (nome, valor_alvo, valor_atual) VALUES (?, ?, 0)", (n, a)); conn.commit()
 def atualizar_meta(idm, v): cursor.execute("UPDATE metas SET valor_atual = valor_atual + ? WHERE id = ?", (v, idm)); conn.commit()
 def listar_metas(): cursor.execute("SELECT * FROM metas"); return cursor.fetchall()
@@ -122,35 +119,26 @@ def is_intro_ok(): cursor.execute("SELECT valor FROM perfil WHERE tipo='intro_ok
 def interpretar_comando(texto):
     if not TEM_IA: return None
     try:
-        # Prompt mais robusto para a versão Lite
-        prompt = f"""Atue como um extrator de dados. Hoje é {datetime.now().strftime('%d/%m/%Y')}. 
-        Analise a frase: "{texto}".
-        Se for um agendamento financeiro, retorne APENAS um JSON neste formato: {{"nome": "descricao", "valor": 0.00, "data": "dd/mm/aaaa"}}.
-        Se não tiver data, use a data de hoje. Se não tiver valor, use 0.00.
-        NÃO escreva nada além do JSON."""
-        
+        prompt = f"""Atue como extrator JSON. Hoje: {datetime.now().strftime('%d/%m/%Y')}. 
+        Texto: "{texto}".
+        Retorne JSON puro: {{"nome": str, "valor": float, "data": "dd/mm/aaaa"}}."""
         txt = chamar_gemini(prompt)
-        if not txt: return None
-        
-        # Limpeza extra para garantir que o JSON é válido
-        txt = txt.replace("```json", "").replace("```", "").strip()
-        if "{" not in txt: return None # Se a IA falou algo que não é JSON
-        
-        return json.loads(txt)
+        return json.loads(txt.replace("```json", "").replace("```", "").strip()) if txt else None
     except: return None
 
 # ==============================================================================
-# 3. INTERFACE (V39 - ESTÁVEL)
+# 3. INTERFACE GRÁFICA (FLET)
 # ==============================================================================
 class RelatorioPDF(FPDF):
     def header(self):
-        self.set_fill_color(255, 255, 255); self.rect(0, 0, 210, 297, 'F')
+        self.set_fill_color(255, 255, 255); self.rect(0, 0, 210, 297, 'F') # Fundo Branco
         self.set_fill_color(14, 165, 233); self.rect(0, 0, 210, 30, 'F'); self.set_y(8)
         self.set_font('Arial', 'B', 18); self.set_text_color(255, 255, 255)
         self.cell(0, 10, "FINANTEA - Extrato", 0, 1, 'C'); self.ln(15)
     def footer(self):
         self.set_y(-20); self.set_font('Arial', 'I', 8); self.set_text_color(100)
         self.cell(0, 10, 'Acessibilidade - Neurodiversidade - Inclusao', 0, 1, 'C')
+        # Barra simbólica
         l = 210/3; y=285
         self.set_fill_color(255, 215, 0); self.rect(0, y, l, 2, 'F')
         self.set_fill_color(255, 0, 0); self.rect(l, y, l, 2, 'F')
@@ -173,11 +161,11 @@ def gerar_pdf(dados, mes):
     except: return None
 
 def main(page: ft.Page):
-    page.title = "Finantea V39"
+    page.title = "Finantea"
     page.theme_mode = "dark"
     page.bgcolor = "#0f172a"
     page.padding = 0 
-    COR_PRINCIPAL = "#0ea5e9"
+    COR_PRINCIPAL = "#0ea5e9" # Azul Sky
 
     def notificar(msg, cor="green"):
         page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor=cor); page.snack_bar.open=True; page.update()
@@ -189,10 +177,9 @@ def main(page: ft.Page):
         e.control.update()
 
     def obter_dica_ia():
-        if not TEM_IA: return ("IA Offline", "Sem conexão."), "grey"
-        renda = get_renda()
-        cursor.execute("SELECT SUM(valor) FROM financeiro"); saldo = cursor.fetchone()[0] or 0
-        txt = chamar_gemini(f"Renda: R$ {renda:.2f}. Saldo: R$ {saldo:.2f}. Dica financeira curta e literal.")
+        if not TEM_IA: return ("IA Offline", "Configure o .env"), "grey"
+        renda = get_renda(); cursor.execute("SELECT SUM(valor) FROM financeiro"); saldo = cursor.fetchone()[0] or 0
+        txt = chamar_gemini(f"Renda: R$ {renda:.2f}. Saldo: R$ {saldo:.2f}. Dica financeira clara e literal.")
         return ("Dica Clara:", txt) if txt else ("Erro", "Tente novamente."), COR_PRINCIPAL
 
     def barra_simbolos():
@@ -202,7 +189,7 @@ def main(page: ft.Page):
             ft.Tooltip(message="Neurodiversidade", content=ft.Icon(ft.icons.ALL_INCLUSIVE, color="red")),
         ], alignment="center", spacing=20), padding=20)
 
-    # --- NAVEGAÇÃO CENTRAL ---
+    # --- NAVEGAÇÃO ---
     conteudo = ft.Container(expand=True)
 
     def mudar(idx):
@@ -234,7 +221,7 @@ def main(page: ft.Page):
             ft.Container(height=30), barra_simbolos()
         ], alignment="center", horizontal_alignment="center"))
 
-    # --- TELAS PRINCIPAIS ---
+    # --- TELA 1: EXTRATO (RESPONSIVO) ---
     def tela_extrato():
         lista = ft.Column(scroll="auto", expand=True)
         t_data = ft.TextField(label="Quando?", value=datetime.now().strftime("%d/%m/%Y"), width=100)
@@ -242,14 +229,13 @@ def main(page: ft.Page):
         t_val = ft.TextField(label="Quanto?", width=150, keyboard_type="number", on_change=mascara_dinheiro)
         t_tipo = ft.Dropdown(width=100, options=[ft.dropdown.Option("Despesa"), ft.dropdown.Option("Receita")], value="Despesa")
         
-        # Placar
         txt_ganhou = ft.Text("Entradas: R$ 0,00", color="#4ade80", weight="bold")
         txt_gastou = ft.Text("Saídas: R$ 0,00", color="#f87171", weight="bold")
         txt_saldo = ft.Text("Resultado: R$ 0,00", size=16, weight="bold", color="white")
         
         meses = get_meses(); mes_atual = f"{datetime.now().month:02d}/{datetime.now().year}"
         if mes_atual not in meses: meses.append(mes_atual)
-        dd_mes = ft.Dropdown(options=[ft.dropdown.Option(m) for m in meses], value=mes_atual)
+        dd_mes = ft.Dropdown(width=150, options=[ft.dropdown.Option(m) for m in meses], value=mes_atual)
 
         def render():
             dados = listar(dd_mes.value)
@@ -284,14 +270,26 @@ def main(page: ft.Page):
 
         render()
         
-        # FIX DE LAYOUT V38: Container externo com padding generoso no topo
-        return ft.Container(padding=ft.padding.only(left=20, right=20, top=20, bottom=20), content=ft.Column([
-            ft.Row([ft.Text("Extrato Mensal", size=24, weight="bold"), ft.Row([dd_mes, btn_pdf], spacing=10)], alignment="spaceBetween"),
-            ft.Container(content=ft.Column([ft.Row([txt_ganhou, txt_gastou], alignment="spaceBetween"), ft.Divider(color="grey"), ft.Row([txt_saldo], alignment="center")]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.all(1, "#334155")),
-            ft.Container(height=10), lista,
-            ft.Container(content=ft.Column([ft.Text("Novo Lançamento", weight="bold"), ft.Row([t_data, t_tipo, t_val]), ft.Row([t_desc]), btn_add]), bgcolor="#1e293b", padding=15, border_radius=10)
-        ], expand=True))
+        # --- LAYOUT RESPONSIVO (WRAP=TRUE) ---
+        return ft.SafeArea(
+            content=ft.Container(
+                padding=20, 
+                content=ft.Column([
+                    ft.Row([
+                        ft.Text("Extrato Mensal", size=24, weight="bold"),
+                        ft.Row([dd_mes, btn_pdf], spacing=10)
+                    ], alignment="spaceBetween", wrap=True), # wrap=True evita cortar botões
+                    
+                    ft.Container(content=ft.Column([ft.Row([txt_ganhou, txt_gastou], alignment="spaceBetween", wrap=True), ft.Divider(color="grey"), ft.Row([txt_saldo], alignment="center")]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.all(1, "#334155")),
+                    
+                    ft.Container(height=10), lista,
+                    
+                    ft.Container(content=ft.Column([ft.Text("Novo Lançamento", weight="bold"), ft.Row([t_data, t_tipo, t_val], wrap=True), ft.Row([t_desc]), btn_add]), bgcolor="#1e293b", padding=15, border_radius=10)
+                ], expand=True, scroll=ft.ScrollMode.AUTO)
+            )
+        )
 
+    # --- TELA 2: COFRINHO ---
     def tela_cofrinho():
         lista = ft.Column(scroll="auto", expand=True)
         t_nome = ft.TextField(label="Nome do Objetivo")
@@ -300,8 +298,7 @@ def main(page: ft.Page):
         def render():
             lista.controls.clear()
             for m in listar_metas():
-                idm, nome, alvo, atual = m[0], m[1], m[2], m[3]
-                perc = int((atual/alvo)*100) if alvo>0 else 0
+                idm, nome, alvo, atual = m[0], m[1], m[2], m[3]; perc = int((atual/alvo)*100) if alvo>0 else 0
                 t_dep = ft.TextField(label="R$", width=100, height=40, text_size=12, on_change=mascara_dinheiro)
                 def dep(e, _id=idm, _t=t_dep):
                     v = limpar_valor(_t.value)
@@ -320,8 +317,9 @@ def main(page: ft.Page):
             if t_nome.value and val > 0: criar_meta(t_nome.value, val); t_nome.value=""; t_alvo.value=""; render(); notificar("Objetivo Criado!")
 
         render()
-        return ft.Container(padding=ft.padding.only(left=20, right=20, top=20, bottom=20), content=ft.Column([ft.Text("Meus Objetivos", size=24, weight="bold"), lista, ft.Container(content=ft.Column([ft.Text("Novo Objetivo", weight="bold"), t_nome, t_alvo, ft.ElevatedButton("Criar", on_click=criar, bgcolor=COR_PRINCIPAL, color="white")]), bgcolor="#1e293b", padding=15, border_radius=10)], expand=True))
+        return ft.SafeArea(content=ft.Container(padding=20, content=ft.Column([ft.Text("Meus Objetivos", size=24, weight="bold"), lista, ft.Container(content=ft.Column([ft.Text("Novo Objetivo", weight="bold"), t_nome, t_alvo, ft.ElevatedButton("Criar", on_click=criar, bgcolor=COR_PRINCIPAL, color="white")]), bgcolor="#1e293b", padding=15, border_radius=10)], expand=True, scroll=ft.ScrollMode.AUTO)))
 
+    # --- TELA 3: FERRAMENTAS ---
     def tela_ferramentas():
         t_renda = ft.TextField(label="Renda Mensal", value=formatar_moeda_visual(get_renda()), width=150, on_change=mascara_dinheiro)
         def salvar_renda(e): set_renda(limpar_valor(t_renda.value)); notificar("Renda atualizada.")
@@ -331,28 +329,29 @@ def main(page: ft.Page):
         t_pag = ft.TextField(label="Valor Pago", width=120, on_change=mascara_dinheiro)
         res = ft.Text("Troco: R$ 0,00", size=16, weight="bold")
         def calc_troco(e): tr = limpar_valor(t_pag.value) - limpar_valor(t_tot.value); res.value = f"Troco: {formatar_moeda_visual(tr)}"; res.color = "green" if tr >= 0 else "red"; page.update()
-        box_troco = ft.Container(content=ft.Column([ft.Text("Calculadora de Troco"), ft.Row([t_tot, t_pag, ft.ElevatedButton("=", on_click=calc_troco)]), res]), bgcolor="#1e293b", padding=15, border_radius=10)
+        box_troco = ft.Container(content=ft.Column([ft.Text("Calculadora de Troco"), ft.Row([t_tot, t_pag, ft.ElevatedButton("=", on_click=calc_troco)], wrap=True), res]), bgcolor="#1e293b", padding=15, border_radius=10)
 
         j_val = ft.TextField(label="Valor Compra", width=120, on_change=mascara_dinheiro); j_taxa = ft.TextField(label="Juros (%)", width=120); j_parc = ft.TextField(label="Parcelas", width=80)
         j_res = ft.Text("Vale a pena parcelar?", color="grey")
         def calc_juros(e):
             try:
-                v = limpar_valor(j_val.value); i = float(j_taxa.value.replace(",", "."))/100; n = int(j_parc.value)
-                tot = v * ((1+i)**n); jur = tot - v
+                v = limpar_valor(j_val.value); i = float(j_taxa.value.replace(",", "."))/100; n = int(j_parc.value); tot = v * ((1+i)**n); jur = tot - v
                 j_res.value = f"Total Final: {formatar_moeda_visual(tot)}\nVocê paga só de Juros: {formatar_moeda_visual(jur)} ⚠️"; j_res.color = "#f87171"; page.update()
             except: pass
         box_juros = ft.Container(content=ft.Column([ft.Text("Calculadora de Juros"), ft.Row([j_val, j_taxa, j_parc], wrap=True), ft.ElevatedButton("Calcular Juros", on_click=calc_juros, bgcolor="#f87171", color="white"), j_res]), bgcolor="#1e293b", padding=15, border_radius=10)
 
         t_dica = ft.Text("Dica Financeira (IA)", weight="bold", color=COR_PRINCIPAL); c_dica = ft.Text("", size=12)
-        def carregar_dica(e): t_dica.value = "Consultando..."; page.update(); d_ia, cor = obter_dica_ia(); t_dica.value, c_dica.value = d_ia; page.update()
+        def carregar_dica(e):
+            t_dica.value = "Consultando..."; page.update(); 
+            dados_ia, cor = obter_dica_ia(); titulo, texto = dados_ia
+            t_dica.value = titulo; c_dica.value = texto; page.update()
         box_ia = ft.Container(content=ft.Column([ft.Row([t_dica, ft.IconButton(icon="auto_awesome", icon_color=COR_PRINCIPAL, on_click=carregar_dica)], alignment="spaceBetween"), c_dica]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, COR_PRINCIPAL)))
 
         t_agencia = ft.TextField(label="Ex: Pagar Net 120 dia 15", expand=True)
         def agendar_ia(e):
             d = interpretar_comando(t_agencia.value)
             if d:
-                criar_lembrete(d.get('nome','Conta'), d.get('data',''), d.get('valor',0))
-                t_agencia.value=""; notificar("Anotado!")
+                criar_lembrete(d.get('nome','Conta'), d.get('data',''), d.get('valor',0)); t_agencia.value=""; notificar("Anotado!")
                 try: page.launch_url(f"https://calendar.google.com/calendar/render?action=TEMPLATE&text={urllib.parse.quote(d.get('nome','Conta'))}&details=Valor:{d.get('valor')}")
                 except: pass
             else: notificar("Não entendi.", "red")
@@ -360,26 +359,23 @@ def main(page: ft.Page):
 
         t_faq = ft.TextField(label="Pergunte...", expand=True); r_faq = ft.Text("")
         def perguntar(e):
-            if not TEM_IA: r_faq.value = "Tô offline 😴"; return
-            r_faq.value = "Pensando..."; page.update(); txt = chamar_gemini(f"Responda curto: {t_faq.value}"); r_faq.value = txt if txt else "Erro."; page.update()
+            r_faq.value = "Pensando..."; page.update(); txt = chamar_gemini(f"Responda curto e literal: {t_faq.value}"); r_faq.value = txt if txt else "Erro."; page.update()
         box_faq = ft.Container(content=ft.Column([ft.Text("Dúvida Inteligente", weight="bold"), ft.Row([t_faq, ft.IconButton(icon="send", on_click=perguntar)]), r_faq]), bgcolor="#1e293b", padding=15, border_radius=10)
 
-        def doar(e): page.set_clipboard("SUA_CHAVE_PIX_AQUI"); notificar("Pix Copiado! Valeu pelo café ☕")
+        def doar(e): page.set_clipboard("SUA_CHAVE_PIX_AQUI"); notificar("Pix Copiado!")
         box_doar = ft.Container(content=ft.Row([ft.ElevatedButton("Doar Café ☕", on_click=doar, bgcolor="#fbbf24", color="black")]), bgcolor="#1e293b", padding=15, border_radius=10)
 
-        return ft.Container(padding=ft.padding.only(left=20, right=20, top=20, bottom=20), content=ft.Column([
+        return ft.SafeArea(content=ft.Container(padding=20, content=ft.Column([
             ft.Text("Ferramentas", size=24, weight="bold"), box_perfil, ft.Container(height=10),
             box_troco, ft.Container(height=10), box_juros, ft.Container(height=10),
             box_ia, ft.Container(height=10), box_agendador, ft.Container(height=10),
-            box_faq, ft.Container(height=10), box_doar, ft.Container(height=20), barra_simbolos()], scroll="auto"), expand=True)
+            box_faq, ft.Container(height=10), box_doar, ft.Container(height=20), barra_simbolos()
+        ], scroll=ft.ScrollMode.AUTO), expand=True))
 
     # --- MENU GAVETA ---
     page.drawer = ft.NavigationDrawer(bgcolor="#1e293b", indicator_color=COR_PRINCIPAL, controls=[
         ft.Container(height=20), ft.Text("  FINANTEA", size=20, weight="bold", color="white"), ft.Divider(color="grey"),
-        ft.NavigationDrawerDestination(label="Extrato", icon="list"),
-        ft.NavigationDrawerDestination(label="Meus Objetivos", icon="savings"),
-        ft.NavigationDrawerDestination(label="Ferramentas", icon="build"),
-    ], on_change=lambda e: (mudar(e.control.selected_index), page.close_drawer()))
+        ft.NavigationDrawerDestination(label="Extrato", icon="list"), ft.NavigationDrawerDestination(label="Meus Objetivos", icon="savings"), ft.NavigationDrawerDestination(label="Ferramentas", icon="build")], on_change=lambda e: (mudar(e.control.selected_index), page.close_drawer()))
 
     def abrir_menu(e): page.drawer.open = True; page.update()
     page.appbar = ft.AppBar(leading=ft.IconButton(icon="menu", on_click=abrir_menu), title=ft.Text("Finantea"), bgcolor="#0f172a")
