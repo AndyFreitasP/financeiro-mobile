@@ -23,18 +23,21 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.27.0' # Atualizado para evitar downloads extras
+          flutter-version: '3.27.0'
+
+      - name: Aceitar Licenças do Android
+        run: |
+          yes | flutter doctor --android-licenses
 
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Instalar Dependências
+      - name: Instalar Dependências de Build
         run: |
-          pip install -r requirements.txt
-          pip install --upgrade flet 
-          # Garante flet atualizado
+          pip install --upgrade pip
+          pip install flet
 
       - name: Injetar API Key no .env
         env:
@@ -43,9 +46,8 @@ jobs:
           echo "API_KEY=$CHAVE_SECRETA" > .env
 
       - name: Compilar APK
-        # O 'yes |' força o aceite (y) se o Flet perguntar algo
         run: |
-          yes | flet build apk --verbose
+          flet build apk --verbose
 
       - name: Upload do APK
         uses: actions/upload-artifact@v4
