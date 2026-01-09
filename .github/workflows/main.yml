@@ -23,32 +23,29 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.22.0' # Atualizado para versão mais recente compatível
+          flutter-version: '3.27.0' # Atualizado para evitar downloads extras
 
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12' # Flet funciona bem com 3.12 agora
+          python-version: '3.12'
 
       - name: Instalar Dependências
         run: |
           pip install -r requirements.txt
-          pip install flet 
-          # Garante que o flet-cli esteja atualizado
+          pip install --upgrade flet 
+          # Garante flet atualizado
 
-      # --- INJEÇÃO DA CHAVE (MANTIDA) ---
       - name: Injetar API Key no .env
         env:
           CHAVE_SECRETA: ${{ secrets.API_KEY }} 
         run: |
           echo "API_KEY=$CHAVE_SECRETA" > .env
-      # ----------------------------------
 
       - name: Compilar APK
-        # COMANDO CORRIGIDO: Removemos --include-packages
-        # O Flet vai ler o requirements.txt automaticamente
+        # O 'yes |' força o aceite (y) se o Flet perguntar algo
         run: |
-          flet build apk --verbose
+          yes | flet build apk --verbose
 
       - name: Upload do APK
         uses: actions/upload-artifact@v4
