@@ -14,26 +14,15 @@ import urllib.parse
 import google.generativeai as genai 
 
 # ==============================================================================
-# 0. CONFIGURAÇÃO DE AMBIENTE E PERSISTÊNCIA ANDROID
+# CONFIGURAÇÃO GERAL
 # ==============================================================================
 load_dotenv()
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 warnings.filterwarnings("ignore")
 logging.getLogger("flet").setLevel(logging.ERROR)
 
-# SOLUÇÃO DE PERSISTÊNCIA PARA ANDROID/APK
-# O Flet no Android define o diretório de trabalho (cwd) para a pasta de dados do app.
-# Forçamos o caminho absoluto para garantir que o SQLite grave no lugar certo.
-try:
-    caminho_raiz = os.getcwd()
-    DB_NAME = os.path.join(caminho_raiz, "dados_financeiros.db")
-    PASTA_COMPROVANTES = os.path.join(caminho_raiz, "comprovantes")
-    if not os.path.exists(PASTA_COMPROVANTES):
-        os.makedirs(PASTA_COMPROVANTES)
-    print(f"Banco de dados definido em: {DB_NAME}") # Para debug no logcat
-except Exception as e:
-    print(f"Erro ao definir caminhos: {e}")
-    DB_NAME = "dados_financeiros.db"
+DB_NAME = "dados_financeiros.db"
+if not os.path.exists("comprovantes"): os.makedirs("comprovantes")
 
 # ==============================================================================
 # 1. CÉREBRO DA AUTIAH (CONFIGURAÇÃO DE PERSONA & CONTEXTO)
@@ -41,19 +30,19 @@ except Exception as e:
 API_KEY = os.getenv("API_KEY")
 TEM_IA = bool(API_KEY)
 
+# --- MANUAL DE INSTRUÇÕES DA AUTIAH ---
 CONTEXTO_APP = """
 VOCÊ É A AUTIAH: A IA integrada ao app Finantea.
 O Finantea é um organizador financeiro para neurodivergentes (TDAH/Autismo), NÃO é um banco real.
 
 SUAS INSTRUÇÕES SOBRE AS FERRAMENTAS DO APP:
 1. Agendar Boleto (A Varinha Mágica): O usuário digita texto natural (ex: "Luz 100 dia 15"). O app apenas SALVA NO BANCO DE DADOS e gera um LINK PARA O GOOGLE AGENDA. O app NÃO paga a conta sozinho.
-2. Preço de Vida: Calcula quanto custa um item em "horas de trabalho" baseado na renda do usuário.
-3. Caçador de Assinaturas: Uma lista separada para gastos recorrentes.
-4. Extrato: Registro de receitas e despesas.
+2. Preço de Vida: Calcula quanto custa um item em "horas de trabalho" baseado na renda do usuário. Serve para tangibilizar gastos abstratos.
+3. Caçador de Assinaturas: Uma lista separada para Netflix, Spotify, etc. Tem um botão de "Check de Realidade" para o usuário ver se está usando ou não.
+4. Extrato: Onde ficam os registros de receitas e despesas.
 
 REGRA DE RESPOSTA:
-- Se perguntarem "Como funciona?", explique a função específica.
-- Jamais diga que o app faz pagamentos bancários reais.
+- Se o usuário perguntar "Como funciona o agendar?", explique que ele cria um lembrete e um link para o calendário. Jamais diga que o app faz pagamentos bancários.
 - Seja literal, direta e acolhedora.
 """
 
@@ -70,7 +59,10 @@ def chamar_autiah(prompt: str, temperatura=0.3) -> str | None:
         model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(
             prompt,
-            generation_config={"temperature": temperatura, "max_output_tokens": 400}
+            generation_config={
+                "temperature": temperatura,
+                "max_output_tokens": 400
+            }
         )
         if response and response.text: return response.text.strip()
     except Exception as e:
@@ -81,7 +73,6 @@ def chamar_autiah(prompt: str, temperatura=0.3) -> str | None:
 # 2. SISTEMA (DB + HELPERS)
 # ==============================================================================
 def conectar_bd():
-    # check_same_thread=False é crucial para Mobile/GUI
     conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE IF NOT EXISTS financeiro (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, descricao TEXT, categoria TEXT, tipo TEXT, valor REAL)")
@@ -107,7 +98,7 @@ def limpar_valor(texto):
 def formatar_moeda_visual(valor_float):
     return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- CRUD Operations ---
+# CRUD GERAL
 def adicionar(data, desc, cat, tipo, valor):
     v = abs(valor) * -1 if tipo == "Despesa" else abs(valor)
     cursor.execute("INSERT INTO financeiro (data, descricao, categoria, tipo, valor) VALUES (?, ?, ?, ?, ?)", (data, desc, cat, tipo, v)); conn.commit()
@@ -129,6 +120,7 @@ def get_renda(): cursor.execute("SELECT valor FROM perfil WHERE tipo='renda'"); 
 def set_intro_ok(): cursor.execute("INSERT OR REPLACE INTO perfil (id, tipo, valor) VALUES (2, 'intro_ok', 1)"); conn.commit()
 def is_intro_ok(): cursor.execute("SELECT valor FROM perfil WHERE tipo='intro_ok'"); res = cursor.fetchone(); return True if res and res[0] == 1 else False
 
+# CRUD ASSINATURAS
 def adicionar_assinatura(nome, valor): cursor.execute("INSERT INTO assinaturas (nome, valor, em_uso) VALUES (?, ?, 1)", (nome, valor)); conn.commit()
 def listar_assinaturas(): cursor.execute("SELECT * FROM assinaturas"); return cursor.fetchall()
 def toggle_uso_assinatura(id_ass, status_atual): 
@@ -136,12 +128,17 @@ def toggle_uso_assinatura(id_ass, status_atual):
     cursor.execute("UPDATE assinaturas SET em_uso = ? WHERE id = ?", (novo, id_ass)); conn.commit()
 def deletar_assinatura(id_ass): cursor.execute("DELETE FROM assinaturas WHERE id = ?", (id_ass,)); conn.commit()
 
+# INTERPRETADOR DE TEXTO (AGENDAMENTO)
 def interpretar_comando(texto):
     if not TEM_IA: return None
     try:
-        prompt = f"""Extraia dados JSON. Hoje: {datetime.now().strftime('%d/%m/%Y')}.
-        Texto: "{texto}". Saída JSON: {{"nome": "str", "valor": float, "data": "dd/mm/aaaa"}}."""
-        txt = chamar_autiah(prompt, temperatura=0.1)
+        prompt = f"""Atue como um sistema de extração de dados JSON. Hoje: {datetime.now().strftime('%d/%m/%Y')}.
+        Entrada: "{texto}".
+        Tarefa: Extrair dados para agendamento.
+        Saída JSON: {{"nome": "descricao", "valor": 0.00, "data": "dd/mm/aaaa"}}.
+        Se faltar data, use hoje. Se faltar valor, use 0.00."""
+        
+        txt = chamar_autiah(prompt, temperatura=0.1) 
         if not txt: return None
         txt = txt.replace("```json", "").replace("```", "").strip()
         if "{" not in txt: return None
@@ -149,7 +146,7 @@ def interpretar_comando(texto):
     except: return None
 
 # ==============================================================================
-# 3. INTERFACE (V48 - FINAL)
+# 3. INTERFACE (V47 - MENU CORRIGIDO)
 # ==============================================================================
 class RelatorioPDF(FPDF):
     def header(self):
@@ -164,9 +161,6 @@ class RelatorioPDF(FPDF):
 def gerar_pdf(dados, mes):
     try:
         nome = f"extrato_{mes.replace('/','_')}.pdf"
-        # No Android, salvar na pasta comprovantes
-        caminho_final = os.path.join(PASTA_COMPROVANTES, nome) if 'PASTA_COMPROVANTES' in globals() else nome
-        
         pdf = RelatorioPDF(); pdf.add_page(); pdf.set_text_color(0); pdf.set_font("Arial", "B", 12)
         pdf.cell(0, 10, f"Referencia: {mes}", ln=True); pdf.ln(2)
         pdf.set_fill_color(240); pdf.set_font("Arial", "B", 10)
@@ -177,12 +171,11 @@ def gerar_pdf(dados, mes):
             if r[5]<0: pdf.set_font("Arial", "B", 10)
             else: pdf.set_font("Arial", "", 10)
             pdf.cell(40, 8, f"{r[5]:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), 1, 1, 'R'); pdf.set_font("Arial", "", 10)
-        pdf.output(caminho_final)
-        return caminho_final
+        pdf.output(nome); return nome
     except: return None
 
 def main(page: ft.Page):
-    page.title = "Finantea"
+    page.title = "Finantea V47"
     page.theme_mode = "dark"
     page.bgcolor = "#0f172a"
     page.padding = 0 
@@ -201,7 +194,12 @@ def main(page: ft.Page):
         if not TEM_IA: return ("Autiah Offline", "Verifique sua internet ou chave."), "grey"
         renda = get_renda()
         cursor.execute("SELECT SUM(valor) FROM financeiro"); saldo = cursor.fetchone()[0] or 0
-        prompt = f"Aja como Autiah. Renda {renda:.2f}, Saldo {saldo:.2f}. Dica de 1 frase."
+        
+        prompt = f"""
+        Aja como Autiah, assistente do Finantea.
+        Dados: Renda {renda:.2f}, Saldo {saldo:.2f}.
+        Dê uma dica financeira de 1 frase, literal e acolhedora.
+        """
         txt = chamar_autiah(prompt)
         return ("Dica da Autiah:", txt) if txt else ("Erro", "Tente novamente."), COR_PRINCIPAL
 
@@ -212,6 +210,7 @@ def main(page: ft.Page):
             ft.Tooltip(message="Neurodiversidade", content=ft.Icon(ft.icons.ALL_INCLUSIVE, color="red")),
         ], alignment="center", spacing=20), padding=20)
 
+    # --- NAVEGAÇÃO CENTRALIZADA ---
     conteudo = ft.Container(expand=True)
 
     def mudar(idx):
@@ -228,6 +227,7 @@ def main(page: ft.Page):
             if val <= 0: notificar("Digite um valor válido.", "red"); return
             set_renda(val); set_intro_ok(); notificar("Perfil Criado!"); mudar(0)
         def acao_pular(e): set_intro_ok(); notificar("Configuração pulada."); mudar(0)
+
         return ft.Container(alignment=ft.alignment.center, content=ft.Column([
             ft.Icon("rocket_launch", size=60, color=COR_PRINCIPAL),
             ft.Text("Bem-vindo ao Finantea!", size=24, weight="bold"),
@@ -260,6 +260,7 @@ def main(page: ft.Page):
             txt_gastou.value = f"Saídas: {formatar_moeda_visual(sai)}"
             txt_saldo.value = f"Saldo Positivo: {formatar_moeda_visual(bal)}" if bal >= 0 else f"Saldo Negativo: {formatar_moeda_visual(abs(bal))}"
             txt_saldo.color = "#4ade80" if bal >= 0 else "#f87171"
+            
             lista.controls.clear()
             for r in dados:
                 cor = "#f87171" if r[5]<0 else "#4ade80"
@@ -277,15 +278,12 @@ def main(page: ft.Page):
             d = listar(dd_mes.value)
             if not d: notificar("Sem dados.", "red"); return
             arq = gerar_pdf(d, dd_mes.value)
-            if arq: 
-                notificar(f"PDF salvo em {arq}")
-                # Tentativa de abrir (Android pode bloquear, mas o arquivo está salvo)
-                try: page.launch_url(arq)
-                except: pass
+            if arq: notificar("PDF Gerado!"); os.startfile(arq)
 
         dd_mes.on_change = lambda e: render()
         btn_add = ft.ElevatedButton("Salvar", bgcolor=COR_PRINCIPAL, color="white", on_click=salvar)
         btn_pdf = ft.IconButton(icon="picture_as_pdf", icon_color=COR_PRINCIPAL, on_click=criar_pdf)
+
         render()
         return ft.Container(padding=10, content=ft.Column([
             ft.Row([ft.Text("Extrato Mensal", size=24, weight="bold"), ft.Row([dd_mes, btn_pdf], spacing=10)], alignment="spaceBetween"),
@@ -294,17 +292,18 @@ def main(page: ft.Page):
             ft.Container(content=ft.Column([ft.Text("Novo Lançamento", weight="bold"), ft.Row([t_data, t_tipo, t_val]), ft.Row([t_desc]), btn_add]), bgcolor="#1e293b", padding=15, border_radius=10)
         ], expand=True))
 
-    # --- TELA 2: FERRAMENTAS ---
+    # --- TELA 2: FERRAMENTAS (LIMPA, SEM O BOX PIX ANTERIOR) ---
     def tela_ferramentas():
         t_renda = ft.TextField(label="Renda Mensal", value=formatar_moeda_visual(get_renda()), width=150, on_change=mascara_dinheiro)
         def salvar_renda(e): set_renda(limpar_valor(t_renda.value)); notificar("Renda atualizada."); tela_ferramentas()
         box_perfil = ft.Container(content=ft.Row([t_renda, ft.ElevatedButton("Atualizar", on_click=salvar_renda)]), bgcolor="#1e293b", padding=15, border_radius=10)
 
-        # Preço de Vida
+        # Calculadora Preço de Vida
         renda_atual = get_renda()
         hora_trabalho = renda_atual / 160 if renda_atual > 0 else 0
         t_preco_item = ft.TextField(label="Preço do Item", prefix_text="R$ ", on_change=mascara_dinheiro, expand=True)
         txt_resultado_vida = ft.Text("Digite um valor...", italic=True)
+        
         def calc_vida(e):
             val = limpar_valor(t_preco_item.value)
             if hora_trabalho <= 0: txt_resultado_vida.value = "Defina sua renda primeiro!"; txt_resultado_vida.color="red"
@@ -315,14 +314,24 @@ def main(page: ft.Page):
                 else: txt_resultado_vida.value = f"Custo: {horas_custo/8:.1f} DIAS de trabalho."
                 txt_resultado_vida.color = COR_PRINCIPAL
             page.update()
-        box_preco_vida = ft.Container(content=ft.Column([ft.Text("Preço de Vida (Abstração)", weight="bold", size=16), ft.Text(f"Sua hora vale: {formatar_moeda_visual(hora_trabalho)}", size=12, color="grey"), ft.Row([t_preco_item, ft.IconButton(icon="calculate", on_click=calc_vida, icon_color=COR_PRINCIPAL)]), txt_resultado_vida]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, "#fbbf24")))
+        
+        box_preco_vida = ft.Container(content=ft.Column([
+            ft.Text("Preço de Vida (Abstração)", weight="bold", size=16),
+            ft.Text(f"Sua hora vale: {formatar_moeda_visual(hora_trabalho)}", size=12, color="grey"),
+            ft.Row([t_preco_item, ft.IconButton(icon="calculate", on_click=calc_vida, icon_color=COR_PRINCIPAL)]),
+            txt_resultado_vida
+        ]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, "#fbbf24")))
 
-        # Troco e Juros
-        t_tot = ft.TextField(label="Total Compra", width=120, on_change=mascara_dinheiro); t_pag = ft.TextField(label="Valor Pago", width=120, on_change=mascara_dinheiro); res = ft.Text("Troco: R$ 0,00", size=16, weight="bold")
+        # Calculadora de Troco
+        t_tot = ft.TextField(label="Total Compra", width=120, on_change=mascara_dinheiro)
+        t_pag = ft.TextField(label="Valor Pago", width=120, on_change=mascara_dinheiro)
+        res = ft.Text("Troco: R$ 0,00", size=16, weight="bold")
         def calc_troco(e): tr = limpar_valor(t_pag.value) - limpar_valor(t_tot.value); res.value = f"Troco: {formatar_moeda_visual(tr)}"; res.color = "green" if tr >= 0 else "red"; page.update()
         box_troco = ft.Container(content=ft.Column([ft.Text("Calculadora de Troco"), ft.Row([t_tot, t_pag, ft.ElevatedButton("=", on_click=calc_troco)]), res]), bgcolor="#1e293b", padding=15, border_radius=10)
 
-        j_val = ft.TextField(label="Valor Compra", width=120, on_change=mascara_dinheiro); j_taxa = ft.TextField(label="Juros (%)", width=120); j_parc = ft.TextField(label="Parcelas", width=80); j_res = ft.Text("Vale a pena parcelar?", color="grey")
+        # Juros
+        j_val = ft.TextField(label="Valor Compra", width=120, on_change=mascara_dinheiro); j_taxa = ft.TextField(label="Juros (%)", width=120); j_parc = ft.TextField(label="Parcelas", width=80)
+        j_res = ft.Text("Vale a pena parcelar?", color="grey")
         def calc_juros(e):
             try:
                 v = limpar_valor(j_val.value); i = float(j_taxa.value.replace(",", "."))/100; n = int(j_parc.value)
@@ -331,11 +340,12 @@ def main(page: ft.Page):
             except: pass
         box_juros = ft.Container(content=ft.Column([ft.Text("Calculadora de Juros"), ft.Row([j_val, j_taxa, j_parc], wrap=True), ft.ElevatedButton("Calcular Juros", on_click=calc_juros, bgcolor="#f87171", color="white"), j_res]), bgcolor="#1e293b", padding=15, border_radius=10)
 
-        # Autiah
+        # Dica IA
         t_dica = ft.Text("Dica da Autiah", weight="bold", color=COR_PRINCIPAL); c_dica = ft.Text("", size=12)
         def carregar_dica(e): t_dica.value = "Autiah pensando..."; page.update(); d_ia, cor = obter_dica_autiah(); t_dica.value, c_dica.value = d_ia; page.update()
         box_ia = ft.Container(content=ft.Column([ft.Row([t_dica, ft.IconButton(icon="auto_awesome", icon_color=COR_PRINCIPAL, on_click=carregar_dica)], alignment="spaceBetween"), c_dica]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, COR_PRINCIPAL)))
 
+        # Agendador
         t_agencia = ft.TextField(label="Ex: Pagar Net 120 dia 15", expand=True)
         def agendar_ia(e):
             d = interpretar_comando(t_agencia.value)
@@ -344,9 +354,10 @@ def main(page: ft.Page):
                 t_agencia.value=""; notificar("Anotado!")
                 try: page.launch_url(f"https://calendar.google.com/calendar/render?action=TEMPLATE&text={urllib.parse.quote(d.get('nome','Conta'))}&details=Valor:{d.get('valor')}")
                 except: pass
-            else: notificar("Não entendi.", "red")
+            else: notificar("Não entendi. Tente: Pagar Luz 100 dia 20", "red")
         box_agendador = ft.Container(content=ft.Column([ft.Text("Agendar boleto"), ft.Row([t_agencia, ft.IconButton(icon="auto_fix_high", icon_color=COR_PRINCIPAL, on_click=agendar_ia)])]), bgcolor="#1e293b", padding=15, border_radius=10)
 
+        # CHAT DA AUTIAH
         t_faq = ft.TextField(label="Fale com a Autiah...", expand=True); r_faq = ft.Text("")
         def perguntar(e):
             if not TEM_IA: r_faq.value = "Estou offline."; return
@@ -356,10 +367,17 @@ def main(page: ft.Page):
             r_faq.value = txt if txt else "Erro."; page.update()
         box_faq = ft.Container(content=ft.Column([ft.Text("Chat com Autiah", weight="bold"), ft.Row([t_faq, ft.IconButton(icon="send", on_click=perguntar)]), r_faq]), bgcolor="#1e293b", padding=15, border_radius=10)
 
+        # DOAR
+        def doar(e): page.set_clipboard("SUA_CHAVE_PIX_AQUI"); notificar("Pix Copiado! Obrigado!")
+        box_doar = ft.Container(content=ft.Row([ft.ElevatedButton("Doar Café ☕", on_click=doar, bgcolor="#fbbf24", color="black")]), bgcolor="#1e293b", padding=15, border_radius=10)
+
         return ft.Container(padding=10, content=ft.Column([
             ft.Text("Ferramentas", size=24, weight="bold"), box_perfil, ft.Container(height=10),
-            box_preco_vida, ft.Container(height=10), box_troco, ft.Container(height=10), box_juros, ft.Container(height=10),
-            box_ia, ft.Container(height=10), box_agendador, ft.Container(height=10), box_faq, ft.Container(height=20),
+            box_preco_vida, ft.Container(height=10),
+            box_troco, ft.Container(height=10), box_juros, ft.Container(height=10),
+            box_ia, ft.Container(height=10), box_agendador, ft.Container(height=10),
+            box_faq, ft.Container(height=20),
+            box_doar, ft.Container(height=10),
             barra_simbolos()], scroll="auto"), expand=True)
 
     # --- TELA 3: ASSINATURAS ---
@@ -367,40 +385,65 @@ def main(page: ft.Page):
         lista_ass = ft.Column(expand=True, scroll="auto")
         t_nome_ass = ft.TextField(label="Nome (ex: Netflix)", expand=True)
         t_val_ass = ft.TextField(label="Valor", width=100, on_change=mascara_dinheiro)
+        
         def render_ass():
             lista_ass.controls.clear()
             assinaturas = listar_assinaturas()
             total_recorrente = sum(a[2] for a in assinaturas)
-            lista_ass.controls.append(ft.Container(content=ft.Text(f"Total Recorrente: {formatar_moeda_visual(total_recorrente)}/mês", weight="bold", color="white"), bgcolor="#334155", padding=10, border_radius=5))
+            
+            lista_ass.controls.append(ft.Container(
+                content=ft.Text(f"Total Recorrente: {formatar_moeda_visual(total_recorrente)}/mês", weight="bold", color="white"),
+                bgcolor="#334155", padding=10, border_radius=5
+            ))
+            
             for a in assinaturas:
                 id_ass, nome, valor, em_uso = a
                 cor_status = "#4ade80" if em_uso else "#f87171"
                 txt_status = "Em uso" if em_uso else "CANCELAR?"
                 def acao_toggle(e, x=id_ass, s=em_uso): toggle_uso_assinatura(x, s); render_ass(); page.update()
                 def acao_del(e, x=id_ass): deletar_assinatura(x); render_ass(); page.update()
-                lista_ass.controls.append(ft.Container(content=ft.Row([
+                card = ft.Container(content=ft.Row([
                     ft.Column([ft.Text(nome, weight="bold"), ft.Text(formatar_moeda_visual(valor), size=12)], expand=True),
-                    ft.Column([ft.Text(txt_status, color=cor_status, weight="bold", size=12), ft.IconButton(icon=ft.icons.THUMB_UP if em_uso else ft.icons.THUMB_DOWN, icon_color=cor_status, on_click=acao_toggle)], alignment="center"),
+                    ft.Column([
+                        ft.Text(txt_status, color=cor_status, weight="bold", size=12),
+                        ft.IconButton(icon=ft.icons.THUMB_UP if em_uso else ft.icons.THUMB_DOWN, icon_color=cor_status, on_click=acao_toggle, tooltip="Check de Realidade")
+                    ], alignment="center"),
                     ft.IconButton(icon="delete", icon_color="grey", on_click=acao_del)
-                ]), bgcolor="#1e293b", padding=10, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, cor_status))))
+                ]), bgcolor="#1e293b", padding=10, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, cor_status)))
+                lista_ass.controls.append(card)
+            
         def add_ass(e):
             val = limpar_valor(t_val_ass.value)
             if not t_nome_ass.value or val <= 0: notificar("Dados inválidos", "red"); return
-            adicionar_assinatura(t_nome_ass.value, val); t_nome_ass.value = ""; t_val_ass.value = ""; render_ass(); page.update()
+            adicionar_assinatura(t_nome_ass.value, val)
+            t_nome_ass.value = ""; t_val_ass.value = ""; render_ass(); page.update()
+
         render_ass()
         return ft.Container(padding=10, content=ft.Column([
-            ft.Text("Caçador de Assinaturas", size=24, weight="bold"), ft.Container(height=10), lista_ass,
+            ft.Text("Caçador de Assinaturas", size=24, weight="bold"),
+            ft.Text("Use o 'Check de Realidade' para ver o que você não usa.", size=12, color="grey"),
+            ft.Container(height=10),
+            lista_ass,
             ft.Container(content=ft.Row([t_nome_ass, t_val_ass, ft.IconButton(icon="add_circle", icon_color=COR_PRINCIPAL, icon_size=40, on_click=add_ass)]), bgcolor="#1e293b", padding=10, border_radius=10)
         ], expand=True))
 
-    # --- MENU DE NAVEGAÇÃO ---
+    # --- MENU LATERAL ATUALIZADO ---
     def navegar(e):
         idx = e.control.selected_index
-        if idx == 3: # BOTÃO DOAR
+        
+        # Lógica especial para o botão de doar (Index 3 se considerar o divider)
+        # O Flet conta os indices dos 'NavigationDrawerDestination'. O Divider não conta como indice selecionável.
+        # Itens: 0=Extrato, 1=Ferramentas, 2=Assinaturas, 3=Doar Café
+        if idx == 3:
             page.set_clipboard("85996994887")
             notificar("Pix copiado! Espero que não faça falta.", "#32bcad")
-            page.drawer.open = False; page.update(); return
-        mudar(idx); page.drawer.open = False; page.update()
+            page.drawer.open = False
+            page.update()
+            return
+
+        mudar(idx) 
+        page.drawer.open = False
+        page.update()
 
     page.drawer = ft.NavigationDrawer(bgcolor="#1e293b", indicator_color=COR_PRINCIPAL, controls=[
         ft.Container(height=20), ft.Text("  FINANTEA", size=20, weight="bold", color="white"), ft.Divider(color="grey"),
@@ -415,6 +458,7 @@ def main(page: ft.Page):
     page.appbar = ft.AppBar(leading=ft.IconButton(icon="menu", on_click=abrir_menu), title=ft.Text("Finantea"), bgcolor="#0f172a", elevation=0)
     
     page.add(ft.SafeArea(conteudo, expand=True))
+
     if not is_intro_ok(): conteudo.content = tela_onboarding()
     else: conteudo.content = tela_extrato()
     page.update()
