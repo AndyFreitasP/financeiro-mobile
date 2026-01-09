@@ -2,52 +2,56 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout code
+      - name: Checkout do código
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Configurar Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Python
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: '3.19.0'
+
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
-
-      - name: Install Dependencies
+      - name: Instalar Dependências
         run: |
-          pip install --upgrade pip
-          pip install flet
-          pip install fpdf
-          # Dotenv foi removido do código, não instale aqui.
+          pip install -r requirements.txt
+          pip install flet 
 
-      - name: Build APK
+      # --- AQUI ESTÁ A MÁGICA ---
+      - name: Injetar API Key no .env
+        env:
+          # Isso pega a chave que você salvou nos Secrets do GitHub
+          CHAVE_SECRETA: ${{ secrets.API_KEY }} 
         run: |
-          yes | flet build apk --verbose
+          # Cria o arquivo .env fisicamente na máquina do GitHub antes de empacotar
+          echo "API_KEY=$CHAVE_SECRETA" > .env
+      # --------------------------
 
-      - name: Locate and Rename APK
+      - name: Compilar APK
+        # O Flet vai pegar o arquivo .env criado acima e colocar dentro do APK
         run: |
-          find . -name "app-release.apk" -exec cp {} Finantea.apk \;
-          ls -lh Finantea.apk
+          flet build apk --include-packages fpdf,google-generativeai,dotenv
 
-      - name: Upload APK
+      - name: Upload do APK
         uses: actions/upload-artifact@v4
         with:
-          name: Finantea-App
-          path: Finantea.apk
+          name: finantea-apk
+          path: build/apk/app-release.apk
