@@ -23,7 +23,8 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.27.0'
+          # MUDANÇA CRUCIAL: Voltamos para o 3.24.5 para ser compatível com Flet 0.25.2
+          flutter-version: '3.24.5'
 
       - name: Aceitar Licenças do Android
         run: |
@@ -38,8 +39,8 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install flet==0.25.2 
-          # Força a instalação da mesma versão do requirements
+          # Garante a instalação do Flet na versão correta
+          pip install flet==0.25.2
 
       - name: Injetar API Key no .env
         env:
@@ -48,8 +49,6 @@ jobs:
           echo "API_KEY=$CHAVE_SECRETA" > .env
 
       - name: Compilar APK
-        # Removemos --product-name pois não existe na v0.25.2
-        # O yes | continua para aceitar downloads do Flutter
         run: |
           yes | flet build apk --verbose
 
