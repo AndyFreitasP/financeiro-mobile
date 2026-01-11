@@ -16,12 +16,22 @@ import google.generativeai as genai
 # ==============================================================================
 # 0. CONFIGURAÇÃO DE AMBIENTE E PERSISTÊNCIA ANDROID
 # ==============================================================================
-load_dotenv()
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 warnings.filterwarnings("ignore")
 logging.getLogger("flet").setLevel(logging.ERROR)
 
+# --- CORREÇÃO DA IA OFFLINE ---
+# No Android, precisamos dizer explicitamente onde está o .env (ao lado do main.py)
 try:
+    caminho_script = os.path.dirname(__file__)
+    caminho_env = os.path.join(caminho_script, ".env")
+    load_dotenv(caminho_env)
+except:
+    load_dotenv() # Fallback para PC
+
+# --- PERSISTÊNCIA DO BANCO DE DADOS ---
+try:
+    # No Android, os.getcwd() aponta para a pasta de dados gravável
     caminho_raiz = os.getcwd()
     DB_NAME = os.path.join(caminho_raiz, "dados_financeiros.db")
     PASTA_COMPROVANTES = os.path.join(caminho_raiz, "comprovantes")
@@ -112,7 +122,7 @@ def criar_lembrete(n, d, v): cursor.execute("INSERT INTO lembretes (nome, data_v
 def set_renda(valor): cursor.execute("INSERT OR REPLACE INTO perfil (id, tipo, valor) VALUES (1, 'renda', ?)", (valor,)); conn.commit()
 def get_renda(): cursor.execute("SELECT valor FROM perfil WHERE tipo='renda'"); res = cursor.fetchone(); return res[0] if res else 0.0
 def set_intro_ok(): cursor.execute("INSERT OR REPLACE INTO perfil (id, tipo, valor) VALUES (2, 'intro_ok', 1)"); conn.commit()
-def reset_intro(): cursor.execute("DELETE FROM perfil WHERE tipo='intro_ok'"); conn.commit() # RESET PARA TESTES
+def reset_intro(): cursor.execute("DELETE FROM perfil WHERE tipo='intro_ok'"); conn.commit() 
 def is_intro_ok(): cursor.execute("SELECT valor FROM perfil WHERE tipo='intro_ok'"); res = cursor.fetchone(); return True if res and res[0] == 1 else False
 def adicionar_assinatura(nome, valor): cursor.execute("INSERT INTO assinaturas (nome, valor, em_uso) VALUES (?, ?, 1)", (nome, valor)); conn.commit()
 def listar_assinaturas(): cursor.execute("SELECT * FROM assinaturas"); return cursor.fetchall()
@@ -151,7 +161,7 @@ def gerar_contexto_completo():
     """
 
 # ==============================================================================
-# 3. INTERFACE (V53 - ÍCONE PIX CORRIGIDO)
+# 3. INTERFACE (V54 - CORREÇÃO DE PATHS E RESET)
 # ==============================================================================
 class RelatorioPDF(FPDF):
     def header(self):
@@ -301,7 +311,7 @@ def main(page: ft.Page):
             t_dica.value = "Analisando..."; page.update()
             ctx = gerar_contexto_completo() + "\nTarefa: Dê uma dica curta."
             txt = chamar_autiah(ctx)
-            t_dica.value, c_dica.value = "Dica da Autiah:", txt if txt else "Erro."
+            t_dica.value, c_dica.value = "Dica da Autiah:", txt if txt else "Erro (Verifique a Internet)"
             page.update()
         box_ia = ft.Container(content=ft.Column([ft.Row([t_dica, ft.IconButton(icon="auto_awesome", icon_color=COR_PRINCIPAL, on_click=carregar_dica)], alignment="spaceBetween"), c_dica]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, COR_PRINCIPAL)))
 
@@ -316,18 +326,22 @@ def main(page: ft.Page):
 
         t_chat = ft.TextField(label="Fale com a Autiah", expand=True); l_resp = ft.Text("")
         def enviar_chat(e):
-            if not TEM_IA: l_resp.value = "Offline."; return
+            if not TEM_IA: l_resp.value = "IA Offline (Sem chave)."; return
             l_resp.value = "Pensando..."; page.update()
             ctx = gerar_contexto_completo() + f"\nPERGUNTA: {t_chat.value}"
-            l_resp.value = chamar_autiah(ctx) or "Erro."; page.update()
+            l_resp.value = chamar_autiah(ctx) or "Erro na resposta."; page.update()
         box_chat = ft.Container(content=ft.Column([ft.Text("Chat Contextual", weight="bold"), ft.Row([t_chat, ft.IconButton(icon="send", on_click=enviar_chat)]), l_resp]), bgcolor="#1e293b", padding=10, border_radius=10)
 
-        # ICONE CORRIGIDO AQUI: ft.icons.QR_CODE no lugar de PIX
         def copiar_pix(e): page.set_clipboard("85996994887"); notificar("Pix copiado!", "#32bcad")
         box_pix = ft.Container(content=ft.Row([ft.Icon(ft.icons.QR_CODE, color="#32bcad"), ft.Column([ft.Text("Minha Chave Pix", weight="bold"), ft.Text("85996994887", size=12)]), ft.IconButton(icon="content_copy", on_click=copiar_pix)]), bgcolor="#1e293b", padding=10, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, "#32bcad")))
 
-        # BOTÃO DE RESET PARA TESTES
-        def acao_reset(e): reset_intro(); notificar("App resetado! Reinicie o app.", "red")
+        # --- CORREÇÃO DO BOTÃO DE RESET ---
+        def acao_reset(e): 
+            reset_intro()
+            notificar("Reiniciando introdução...", "#fbbf24")
+            conteudo.content = tela_onboarding() # FORÇA A TROCA DE TELA
+            page.update()
+            
         btn_reset = ft.TextButton("Resetar Introdução (Teste)", on_click=acao_reset)
 
         return ft.Container(padding=10, content=ft.Column([
@@ -338,7 +352,7 @@ def main(page: ft.Page):
             box_chat, ft.Container(height=10),
             box_troco, ft.Container(height=10),
             box_pix, ft.Container(height=10),
-            btn_reset # BOTÃO ADICIONADO
+            btn_reset
         ], scroll="auto"), expand=True)
 
     # TELA 3: ASSINATURAS
