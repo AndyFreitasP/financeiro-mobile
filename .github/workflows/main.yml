@@ -46,12 +46,17 @@ jobs:
         run: |
           echo "API_KEY=$CHAVE_SECRETA" > .env
 
-      - name: Compilar APK
+      - name: Compilar APK (Finantea)
+        # --product-name define o nome instalado no celular
         run: |
-          yes | flet build apk --verbose
+          yes | flet build apk --product-name "Finantea" --verbose
+
+      - name: Renomear Arquivo para Finantea.apk
+        run: |
+          mv build/apk/app-release.apk build/apk/Finantea.apk
 
       - name: Upload do APK
         uses: actions/upload-artifact@v4
         with:
-          name: finantea-apk
-          path: build/apk/app-release.apk
+          name: Finantea
+          path: build/apk/Finantea.apk
