@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore")
 logging.getLogger("flet").setLevel(logging.ERROR)
 
 DB_NAME = "dados_financeiros.db"
-# Cria pasta de comprovantes se permitido
+# Cria pasta de comprovantes se permitido (evita erro de permissão)
 try:
     if not os.path.exists("comprovantes"): os.makedirs("comprovantes")
 except: pass
@@ -40,21 +40,16 @@ carregar_env_manual()
 # ==============================================================================
 # 1. CÉREBRO DA AUTIAH (VIA HTTP - SEM INSTALAR NADA)
 # ==============================================================================
-# Usamos urllib padrão do Python para não precisar instalar 'google-generativeai'
 API_KEY = os.getenv("API_KEY", "") 
 TEM_IA = True
 
 def chamar_autiah(prompt_usuario):
     if not API_KEY or "COLE_SUA" in API_KEY: return None
     
-    # Personalidade da Autiah
     system_instruction = """
-    Você é a Autiah, a IA do app Finantea (organizador financeiro para neurodivergentes).
+    Você é a Autiah, a IA do app Finantea.
     Seu tom é: Acolhedor, direto e literal.
-    Regras:
-    1. Agendamento: O app apenas cria LEMBRETES no calendário, não paga contas bancárias.
-    2. Preço de Vida: Explique que é o custo em 'horas de trabalho'.
-    3. Responda curto (máximo 40 palavras).
+    Responda curto (máximo 40 palavras).
     """
     
     prompt_final = f"{system_instruction}\n\nUsuário: {prompt_usuario}"
@@ -75,10 +70,8 @@ def chamar_autiah(prompt_usuario):
 def interpretar_comando(texto):
     if not TEM_IA: return None
     try:
-        # Prompt técnico para JSON
         p = f"Extraia JSON agendamento. Hoje: {datetime.now().strftime('%d/%m/%Y')}. Texto: '{texto}'. Retorne APENAS: {{'nome': str, 'valor': float, 'data': 'dd/mm/aaaa'}}"
-        t = chamar_autiah(p) # Reusa a função segura
-        # Limpeza do JSON
+        t = chamar_autiah(p) 
         if t:
             t = t.replace("```json", "").replace("```", "").strip()
             if "{" in t: return json.loads(t[t.find("{"):t.rfind("}")+1])
@@ -89,6 +82,7 @@ def interpretar_comando(texto):
 # ==============================================================================
 def conectar_bd():
     try:
+        # Caminho absoluto para garantir leitura no Android
         db_path = os.path.join(os.getcwd(), DB_NAME)
         conn = sqlite3.connect(db_path, check_same_thread=False)
         cursor = conn.cursor()
@@ -160,7 +154,7 @@ def gerar_pdf(dados, mes):
     except: return None
 
 # ==============================================================================
-# 4. INTERFACE (CORREÇÃO DE BUGS ANDROID)
+# 4. INTERFACE (CORREÇÃO DE ERRO PREFIX_TEXT)
 # ==============================================================================
 def main(page: ft.Page):
     try:
@@ -198,7 +192,7 @@ def main(page: ft.Page):
         
         # 0. ONBOARDING
         def tela_onboarding():
-            # CORREÇÃO CRÍTICA: Substituído 'prefix_text' por 'prefix' (Compatibilidade Android)
+            # CORREÇÃO: Substituído 'prefix_text' (quebra no Android) por 'prefix' (seguro)
             t_renda = ft.TextField(label="Renda Mensal", prefix=ft.Text("R$ "), keyboard_type="number", on_change=mascara_dinheiro, width=300)
             def ir(e):
                 if limpar_valor(t_renda.value) > 0: set_renda(limpar_valor(t_renda.value)); set_intro_ok(); mudar(0)
@@ -212,7 +206,6 @@ def main(page: ft.Page):
 
         # 1. EXTRATO
         def tela_extrato():
-            # CORREÇÃO: Largura aumentada de 130 para 160 para caber a data
             t_data = ft.TextField(label="Data", value=datetime.now().strftime("%d/%m/%Y"), width=160)
             t_desc = ft.TextField(label="Descrição", expand=True)
             t_val = ft.TextField(label="Valor", width=130, keyboard_type="number", on_change=mascara_dinheiro)
@@ -239,7 +232,7 @@ def main(page: ft.Page):
                 lista_extrato.controls.clear()
                 for r in d:
                     cor = "#f87171" if r[5]<0 else "#4ade80"
-                    # CORREÇÃO: icon="name" explícito
+                    # CORREÇÃO: icon="name"
                     btn = ft.IconButton(icon="delete", icon_color="grey", on_click=lambda e, x=r[0]: (deletar(x), render(), page.update()))
                     lista_extrato.controls.append(ft.Container(
                         content=ft.Row([ft.Text(r[1], width=80), ft.Text(r[2], expand=True), ft.Text(f"{r[5]:.2f}", color=cor), btn]),
@@ -261,7 +254,6 @@ def main(page: ft.Page):
             render()
 
             return ft.Column([
-                # CORREÇÃO: icon="name" explícito
                 ft.Row([ft.Text("Extrato", size=24, weight="bold"), ft.Row([dd_mes, ft.IconButton(icon="picture_as_pdf", on_click=pdf_acao)])], alignment="spaceBetween", wrap=True),
                 ft.Container(content=ft.Column([ft.Row([txt_ganhou, txt_gastou], alignment="spaceBetween", wrap=True), ft.Divider(), txt_saldo]), bgcolor="#1e293b", padding=15, border_radius=10),
                 lista_extrato,
@@ -272,12 +264,11 @@ def main(page: ft.Page):
 
         # 2. FERRAMENTAS
         def tela_ferramentas():
-            # CORREÇÃO: prefix_text removido em favor de prefix=ft.Text()
             t_renda = ft.TextField(label="Renda", value=formatar_moeda_visual(get_renda()), on_change=mascara_dinheiro)
             def salv_renda(e): set_renda(limpar_valor(t_renda.value)); notificar("Salvo")
             box_perfil = ft.Container(content=ft.Row([t_renda, ft.ElevatedButton("Atualizar", on_click=salv_renda)]), bgcolor="#1e293b", padding=15, border_radius=10)
 
-            # Preço de Vida
+            # Preço de Vida (CORREÇÃO PREFIX)
             tr = get_renda()/160 if get_renda()>0 else 0
             t_pv = ft.TextField(label="Preço do Item", prefix=ft.Text("R$ "), on_change=mascara_dinheiro, expand=True)
             txt_pv = ft.Text("Digite valor...", italic=True)
@@ -286,7 +277,6 @@ def main(page: ft.Page):
                 h = limpar_valor(t_pv.value)/tr
                 txt_pv.value = f"Custa: {h:.1f} horas de trabalho." if h>1 else f"Custa: {int(h*60)} minutos."
                 page.update()
-            # CORREÇÃO: icon="name" explícito
             box_vida = ft.Container(content=ft.Column([ft.Text("Preço de Vida", weight="bold"), ft.Row([t_pv, ft.IconButton(icon="calculate", on_click=calc_pv)]), txt_pv]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4,"#fbbf24")))
 
             # Troco
@@ -324,7 +314,7 @@ def main(page: ft.Page):
                 box_vida, ft.Container(height=10),
                 box_troco, ft.Container(height=10),
                 box_juros, ft.Container(height=10),
-                # CORREÇÃO: icon="name" explícito em todos IconButtons
+                # CORREÇÃO: icon="name"
                 ft.Container(content=ft.Column([ft.Row([t_dica, ft.IconButton(icon="auto_awesome", on_click=get_dica)]), c_dica]), bgcolor="#1e293b", padding=15, border_radius=10),
                 ft.Container(height=10),
                 ft.Container(content=ft.Column([ft.Text("Agendar"), ft.Row([t_ag, ft.IconButton(icon="send", on_click=ag)])]), bgcolor="#1e293b", padding=15, border_radius=10),
@@ -351,9 +341,9 @@ def main(page: ft.Page):
                     def toggle(e, x=id_a, s=uso): toggle_uso_assinatura(x, s); render_ass(); page.update()
                     def delete(e, x=id_a): deletar_assinatura(x); render_ass(); page.update()
                     
-                    # CORREÇÃO: icon="name" explícito
                     card = ft.Container(content=ft.Row([
                         ft.Column([ft.Text(nome, weight="bold"), ft.Text(formatar_moeda_visual(val), size=12)], expand=True),
+                        # CORREÇÃO: icon="name"
                         ft.Column([ft.Text(txt, color=cor, size=12, weight="bold"), ft.IconButton(icon=ft.icons.THUMB_UP if uso else ft.icons.THUMB_DOWN, icon_color=cor, on_click=toggle)]),
                         ft.IconButton(icon="delete", icon_color="grey", on_click=delete)
                     ]), bgcolor="#1e293b", padding=10, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, cor)))
@@ -370,11 +360,12 @@ def main(page: ft.Page):
                 ft.Container(height=10),
                 lista_ass,
                 ft.Container(height=20),
+                # CORREÇÃO: icon="name"
                 ft.Container(content=ft.Row([t_nome, t_val, ft.IconButton(icon="add_circle", icon_color=COR_PRINCIPAL, icon_size=40, on_click=add)]), bgcolor="#1e293b", padding=10, border_radius=10),
                 ft.Container(height=50)
             ])
 
-        # Navegação Segura
+        # Navegação
         def mudar(idx):
             page.clean()
             if idx == 0: page.add(ft.SafeArea(content=ft.Container(padding=20, content=tela_extrato())))
@@ -395,7 +386,7 @@ def main(page: ft.Page):
             ft.NavigationDrawerDestination(label="Ferramentas", icon="build"),
             ft.NavigationDrawerDestination(label="Assinaturas", icon="subscriptions"),
             ft.Divider(),
-            # CORREÇÃO: Ícone explicito
+            # CORREÇÃO: icon="name"
             ft.NavigationDrawerDestination(label="Doar Café", icon="coffee")
         ], on_change=menu_change)
 
