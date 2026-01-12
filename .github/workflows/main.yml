@@ -35,17 +35,18 @@ jobs:
           pip install --upgrade pip
           pip install flet
           pip install fpdf
+          # O Flet vai empacotar tudo que estiver instalado aqui.
 
-      # --- O PULO DO GATO ESTÁ AQUI ---
-      # Criamos o arquivo .env físico usando o segredo do GitHub
+      # Cria o arquivo .env físico usando o segredo do GitHub
       - name: Create .env file
         run: |
           echo "API_KEY=${{ secrets.API_KEY }}" > .env
-      # --------------------------------
 
+      # CORREÇÃO: Removemos '--include-packages fpdf' que estava quebrando o build.
+      # O comando agora é limpo.
       - name: Build APK
         run: |
-          yes | flet build apk --verbose --include-packages fpdf
+          yes | flet build apk --verbose
 
       - name: Locate and Rename APK
         run: |
