@@ -2,62 +2,58 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout do código
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configurar Java
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Configurar Flutter
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          # MUDANÇA CRUCIAL: Voltamos para o 3.24.5 para ser compatível com Flet 0.25.2
-          flutter-version: '3.24.5'
+          cache: true
 
-      - name: Aceitar Licenças do Android
-        run: |
-          yes | flutter doctor --android-licenses
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Instalar Dependências de Build
+      - name: Install Dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-          # Garante a instalação do Flet na versão correta
-          pip install flet==0.25.2
+          pip install flet
+          pip install fpdf
 
-      - name: Injetar API Key no .env
-        env:
-          CHAVE_SECRETA: ${{ secrets.API_KEY }} 
+      # --- O PULO DO GATO ESTÁ AQUI ---
+      # Criamos o arquivo .env físico usando o segredo do GitHub
+      - name: Create .env file
         run: |
-          echo "API_KEY=$CHAVE_SECRETA" > .env
+          echo "API_KEY=${{ secrets.API_KEY }}" > .env
+      # --------------------------------
 
-      - name: Compilar APK
+      - name: Build APK
         run: |
-          yes | flet build apk --verbose
+          yes | flet build apk --verbose --include-packages fpdf
 
-      - name: Renomear Arquivo para Finantea.apk
+      - name: Locate and Rename APK
         run: |
-          mv build/apk/app-release.apk build/apk/Finantea.apk
+          find . -name "app-release.apk" -exec cp {} Finantea.apk \;
+          ls -lh Finantea.apk
 
-      - name: Upload do APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Finantea
-          path: build/apk/Finantea.apk
+          name: Finantea-App
+          path: Finantea.apk
