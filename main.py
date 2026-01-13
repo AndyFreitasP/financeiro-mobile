@@ -12,7 +12,7 @@ import logging
 import pathlib
 
 # ==============================================================================
-# 0. CONFIGURAÇÃO (ANDROID 11 COMPATIBLE)
+# 0. CONFIGURAÇÃO (ANDROID 11 SAFE STORAGE)
 # ==============================================================================
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 warnings.filterwarnings("ignore")
@@ -23,25 +23,40 @@ CONN = None
 CURSOR = None
 API_KEY = ""
 TEM_IA = False
+DB_PATH_DISPLAY = "Iniciando..." # Para debug visual
 
-# Caminho seguro para Android 11+
-def get_db_path():
+def get_android_safe_path():
+    """
+    Retorna um caminho onde o Android 11 DEIXA escrever.
+    Geralmente: /data/user/0/com.seu.app/files/banco_finantea/
+    """
     try:
-        # Tenta usar o diretório de documentos do usuário (Android friendly)
-        path = os.path.join(str(pathlib.Path.home()), "finantea_data.db")
-        return path
-    except:
-        return "finantea_data.db" # Fallback local
+        # Tenta pegar a pasta de documentos do usuário (App Data)
+        home = pathlib.Path.home()
+        # Cria a pasta pedida
+        pasta_banco = os.path.join(str(home), "banco_finantea")
+        
+        if not os.path.exists(pasta_banco):
+            os.makedirs(pasta_banco, mode=0o777, exist_ok=True)
+            
+        db_file = os.path.join(pasta_banco, "dados.db")
+        return db_file
+    except Exception as e:
+        # Fallback extremo para pasta temporária se tudo falhar
+        return "dados_financeiros.db"
 
-DB_FILE = get_db_path()
+DB_FILE = get_android_safe_path()
 
 # ==============================================================================
-# 1. FUNÇÕES DO SISTEMA (DB & IA)
+# 1. FUNÇÕES DO SISTEMA
 # ==============================================================================
 def inicializar_sistema():
-    global CONN, CURSOR, API_KEY, TEM_IA
+    global CONN, CURSOR, API_KEY, TEM_IA, DB_PATH_DISPLAY
     
-    # 1. Carregar Chave
+    # 1. Define Caminho Visual (Debug)
+    DB_PATH_DISPLAY = DB_FILE
+
+    # 2. Carrega API Key (Segura)
     try:
         base_path = os.path.dirname(os.path.abspath(__file__))
         env_path = os.path.join(base_path, ".env")
@@ -53,20 +68,22 @@ def inicializar_sistema():
                         TEM_IA = True
     except: pass
 
-    # 2. Conectar BD
+    # 3. Conecta BD
     try:
         CONN = sqlite3.connect(DB_FILE, check_same_thread=False)
         CURSOR = CONN.cursor()
-        tabelas = [
+        
+        # Criação de Tabelas (Garante que existem)
+        sqls = [
             "CREATE TABLE IF NOT EXISTS financeiro (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, descricao TEXT, categoria TEXT, tipo TEXT, valor REAL)",
             "CREATE TABLE IF NOT EXISTS lembretes (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, data_vencimento TEXT, valor REAL, status TEXT, anexo TEXT)",
             "CREATE TABLE IF NOT EXISTS perfil (id INTEGER PRIMARY KEY, tipo TEXT UNIQUE, valor REAL)",
             "CREATE TABLE IF NOT EXISTS assinaturas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, valor REAL, em_uso INTEGER DEFAULT 1)"
         ]
-        for sql in tabelas: CURSOR.execute(sql)
+        for s in sqls: CURSOR.execute(s)
         CONN.commit()
     except Exception as e:
-        print(f"Erro Crítico DB: {e}")
+        DB_PATH_DISPLAY = f"Erro BD: {e}"
 
 def formatar_moeda(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -103,6 +120,8 @@ def db_ass_list(): CURSOR.execute("SELECT * FROM assinaturas"); return CURSOR.fe
 def db_ass_toggle(id_a, s): CURSOR.execute("UPDATE assinaturas SET em_uso = ? WHERE id = ?", (0 if s else 1, id_a)); CONN.commit()
 def db_ass_del(id_a): CURSOR.execute("DELETE FROM assinaturas WHERE id = ?", (id_a,)); CONN.commit()
 
+def db_lembrete_add(n, d, v): CURSOR.execute("INSERT INTO lembretes (nome, data_vencimento, valor, status) VALUES (?, ?, ?, 'Pendente')", (n, d, v)); CONN.commit()
+
 # --- IA ---
 def chamar_autiah(prompt):
     if not TEM_IA: return None
@@ -110,7 +129,7 @@ def chamar_autiah(prompt):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
         data = json.dumps({"contents": [{"parts": [{"text": "Você é a Autiah. " + prompt}]}]}).encode('utf-8')
         req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'}, method='POST')
-        with urllib.request.urlopen(req, timeout=8) as r:
+        with urllib.request.urlopen(req, timeout=5) as r:
             res = json.loads(r.read().decode('utf-8'))
             if 'candidates' in res: return res['candidates'][0]['content']['parts'][0]['text']
     except: return None
@@ -144,21 +163,20 @@ def gerar_pdf(dados, mes):
     except: return None
 
 # ==============================================================================
-# 2. INTERFACE (V57 - RESTAURADA E ESTÁVEL)
+# 2. INTERFACE (V58 - FINAL)
 # ==============================================================================
 def main(page: ft.Page):
+    # Configuração da página principal
     page.title = "Finantea"
     page.theme_mode = "dark"
     page.bgcolor = "#0f172a"
     page.padding = 0
-    # IMPORTANTE: Desativar scroll da página para evitar conflito com ListView
-    page.scroll = None 
+    page.scroll = None # Gerenciado pelas ListViews internas
     
     COR_PRINCIPAL = "#0ea5e9"
     
-    # Inicialização segura
-    try: inicializar_sistema()
-    except: pass
+    # Inicializa sistema
+    inicializar_sistema()
 
     def notificar(m, c="green"):
         page.snack_bar = ft.SnackBar(ft.Text(m), bgcolor=c); page.snack_bar.open=True; page.update()
@@ -183,13 +201,11 @@ def main(page: ft.Page):
         ], horizontal_alignment="center", alignment="center", expand=True)
 
     def tela_extrato():
-        # Elementos restaurados
         t_data = ft.TextField(label="Data", value=datetime.now().strftime("%d/%m/%Y"), width=130)
         t_desc = ft.TextField(label="Descrição", expand=True)
         t_val = ft.TextField(label="Valor", width=120, keyboard_type="number", on_change=mascara_dinheiro)
         t_tipo = ft.Dropdown(width=100, options=[ft.dropdown.Option("Despesa"), ft.dropdown.Option("Receita")], value="Despesa")
         
-        # Resumo
         txt_ent = ft.Text("Ent: R$ 0,00", color="green"); txt_sai = ft.Text("Sai: R$ 0,00", color="red"); txt_sal = ft.Text("Saldo: R$ 0,00", weight="bold")
         
         meses = db_get_meses(); m_atual = meses[-1] if meses else datetime.now().strftime("%m/%Y")
@@ -221,7 +237,7 @@ def main(page: ft.Page):
 
         def pdf_acao(e):
             p = gerar_pdf(db_list_transacoes(dd_mes.value), dd_mes.value)
-            if p: notificar(f"PDF criado: {p}")
+            if p: notificar(f"PDF criado.")
 
         dd_mes.on_change = lambda e: render()
         render()
@@ -238,7 +254,6 @@ def main(page: ft.Page):
         ], expand=True)
 
     def tela_ferramentas():
-        # LISTA DE FERRAMENTAS RESTAURADA
         lv_ferramentas = ft.ListView(expand=True, spacing=15, padding=15)
         
         # 1. Renda
@@ -258,14 +273,14 @@ def main(page: ft.Page):
         lv_ferramentas.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, "#fbbf24")),
             content=ft.Column([ft.Text("Preço de Vida", weight="bold"), ft.Row([t_pv, ft.IconButton("calculate", on_click=calc_pv)]), res_pv])))
 
-        # 3. Calculadora de Troco (RESTAURADA)
+        # 3. Calculadora de Troco
         t_tot = ft.TextField(label="Total", width=120, on_change=mascara_dinheiro); t_pag = ft.TextField(label="Pago", width=120, on_change=mascara_dinheiro)
         res_tr = ft.Text("Troco: R$ 0,00", weight="bold")
         def calc_tr(e): res_tr.value = f"Troco: {formatar_moeda(limpar_valor(t_pag.value) - limpar_valor(t_tot.value))}"; page.update()
         lv_ferramentas.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, 
             content=ft.Column([ft.Text("Calc. Troco", weight="bold"), ft.Row([t_tot, t_pag, ft.IconButton("calculate", on_click=calc_tr)]), res_tr])))
 
-        # 4. Calculadora de Juros (RESTAURADA)
+        # 4. Calculadora de Juros
         j_val = ft.TextField(label="Valor", width=120, on_change=mascara_dinheiro); j_tax = ft.TextField(label="%", width=60); j_par = ft.TextField(label="x", width=60)
         j_res = ft.Text("")
         def calc_jur(e):
@@ -285,12 +300,12 @@ def main(page: ft.Page):
             ft.Text("Autiah Chat", weight="bold"), ft.Row([t_chat, ft.IconButton("chat", on_click=chat_acao)]), r_chat
         ])))
 
-        # 6. Agendador (RESTAURADO)
+        # 6. Agendador
         t_ag = ft.TextField(label="Ex: Pagar luz 100 dia 5", expand=True)
         def ag_acao(e):
             d = interpretar_agendamento(t_ag.value)
             if d:
-                # Salva apenas lembrete local, pois android bloqueia calendar intents diretos sem permissão extra
+                db_lembrete_add(d.get('nome','Conta'), d.get('data',''), d.get('valor',0))
                 notificar(f"Lembrete criado: {d.get('nome')}")
             else: notificar("Autiah não entendeu", "red")
         lv_ferramentas.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, content=ft.Column([
@@ -345,6 +360,7 @@ def main(page: ft.Page):
 
     page.drawer = ft.NavigationDrawer(bgcolor="#1e293b", indicator_color=COR_PRINCIPAL, controls=[
         ft.Container(height=20), ft.Text("  FINANTEA", size=20, weight="bold"), ft.Divider(),
+        ft.Text(f"BD: {os.path.basename(DB_FILE)}", size=10, color="grey"), # DEBUG
         ft.NavigationDrawerDestination(label="Extrato", icon="list"),
         ft.NavigationDrawerDestination(label="Ferramentas", icon="build"),
         ft.NavigationDrawerDestination(label="Assinaturas", icon="subscriptions"),
