@@ -23,7 +23,6 @@ try:
 except: pass
 
 def carregar_env_manual():
-    """Lê .env na pasta do script (Seguro para Android)"""
     try:
         base_path = os.path.dirname(os.path.abspath(__file__))
         env_path = os.path.join(base_path, ".env")
@@ -38,7 +37,7 @@ def carregar_env_manual():
 carregar_env_manual()
 
 # ==============================================================================
-# 1. CÉREBRO DA AUTIAH (VIA HTTP)
+# 1. CÉREBRO DA AUTIAH (IA)
 # ==============================================================================
 API_KEY = os.getenv("API_KEY", "") 
 TEM_IA = True
@@ -46,8 +45,8 @@ TEM_IA = True
 def chamar_autiah(prompt_usuario):
     if not API_KEY or "COLE_SUA" in API_KEY: return None
     
-    system_instruction = "Você é a Autiah, IA do Finantea. Responda curto e direto."
-    prompt_final = f"{system_instruction}\nUsuário: {prompt_usuario}"
+    system = "Você é a Autiah, IA do Finantea. Responda curto e direto."
+    prompt_final = f"{system}\nUsuário: {prompt_usuario}"
     
     modelos = ["gemini-1.5-flash", "gemini-pro"]
     for modelo in modelos:
@@ -103,7 +102,7 @@ def limpar_valor(texto):
 def formatar_moeda_visual(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# Helpers
+# Helpers DB
 def adicionar(data, desc, cat, tipo, valor):
     v = abs(valor) * -1 if tipo == "Despesa" else abs(valor)
     cursor.execute("INSERT INTO financeiro (data, descricao, categoria, tipo, valor) VALUES (?, ?, ?, ?, ?)", (data, desc, cat, tipo, v)); conn.commit()
@@ -149,7 +148,7 @@ def gerar_pdf(dados, mes):
     except: return None
 
 # ==============================================================================
-# 4. INTERFACE
+# 4. INTERFACE (MODO DE COMPATIBILIDADE)
 # ==============================================================================
 def main(page: ft.Page):
     try:
@@ -157,13 +156,12 @@ def main(page: ft.Page):
         page.theme_mode = "dark"
         page.bgcolor = "#0f172a"
         page.padding = 0
-        page.scroll = ft.ScrollMode.AUTO
         COR_PRINCIPAL = "#0ea5e9"
 
         global conn, cursor
         conn, cursor = conectar_bd()
         if not conn:
-            page.add(ft.Text("Erro BD", color="red")); return
+            page.add(ft.Text("Erro BD - Reinicie o App", color="red", size=20)); return
 
         def notificar(msg, cor="green"):
             page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor=cor); page.snack_bar.open=True; page.update()
@@ -173,21 +171,23 @@ def main(page: ft.Page):
             e.control.value = f"R$ {int(v)/100:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if v else ""
             e.control.update()
 
-        # TELA 0: ONBOARDING (Com correção de Update)
+        # --- TELAS ---
+        
+        # 0. ONBOARDING
         def tela_onboarding():
             t_renda = ft.TextField(label="Renda Mensal", prefix=ft.Text("R$ "), keyboard_type="number", on_change=mascara_dinheiro, width=300)
             def ir(e):
                 if limpar_valor(t_renda.value) > 0: set_renda(limpar_valor(t_renda.value)); set_intro_ok(); mudar(0)
             
-            return ft.Container(padding=20, content=ft.Column([
+            return ft.Column([
                 ft.Container(height=50),
-                ft.Icon(ft.icons.ROCKET_LAUNCH, size=60, color=COR_PRINCIPAL),
+                ft.Icon("rocket_launch", size=60, color=COR_PRINCIPAL),
                 ft.Text("Bem-vindo!", size=24, weight="bold"),
                 t_renda,
                 ft.ElevatedButton("Iniciar", bgcolor=COR_PRINCIPAL, color="white", on_click=ir, width=200)
-            ], horizontal_alignment="center"))
+            ], horizontal_alignment="center", scroll="auto", expand=True)
 
-        # TELA 1: EXTRATO
+        # 1. EXTRATO
         def tela_extrato():
             t_data = ft.TextField(label="Data", value=datetime.now().strftime("%d/%m/%Y"), width=160)
             t_desc = ft.TextField(label="Descrição", expand=True)
@@ -215,7 +215,8 @@ def main(page: ft.Page):
                 lista_extrato.controls.clear()
                 for r in d:
                     cor = "#f87171" if r[5]<0 else "#4ade80"
-                    btn = ft.IconButton(ft.icons.DELETE, icon_color="grey", on_click=lambda e, x=r[0]: (deletar(x), render(), page.update()))
+                    # USO DE ÍCONE STRING (SEGURO)
+                    btn = ft.IconButton("delete", icon_color="grey", on_click=lambda e, x=r[0]: (deletar(x), render(), page.update()))
                     lista_extrato.controls.append(ft.Container(
                         content=ft.Row([ft.Text(r[1], width=80), ft.Text(r[2], expand=True), ft.Text(f"{r[5]:.2f}", color=cor), btn]),
                         bgcolor="#1e293b", padding=10, border_radius=5
@@ -236,15 +237,15 @@ def main(page: ft.Page):
             render()
 
             return ft.Column([
-                ft.Row([ft.Text("Extrato", size=24, weight="bold"), ft.Row([dd_mes, ft.IconButton(ft.icons.PICTURE_AS_PDF, on_click=pdf_acao)])], alignment="spaceBetween", wrap=True),
+                ft.Row([ft.Text("Extrato", size=24, weight="bold"), ft.Row([dd_mes, ft.IconButton("picture_as_pdf", on_click=pdf_acao)])], alignment="spaceBetween", wrap=True),
                 ft.Container(content=ft.Column([ft.Row([txt_ganhou, txt_gastou], alignment="spaceBetween", wrap=True), ft.Divider(), txt_saldo]), bgcolor="#1e293b", padding=15, border_radius=10),
                 lista_extrato,
                 ft.Container(height=20),
                 ft.Container(content=ft.Column([ft.Text("Novo Lançamento", weight="bold"), ft.Row([t_data, t_tipo, t_val], wrap=True), t_desc, btn_add]), bgcolor="#1e293b", padding=15, border_radius=10),
                 ft.Container(height=50)
-            ])
+            ], scroll="auto", expand=True)
 
-        # TELA 2: FERRAMENTAS
+        # 2. FERRAMENTAS
         def tela_ferramentas():
             t_renda = ft.TextField(label="Renda", value=formatar_moeda_visual(get_renda()), on_change=mascara_dinheiro)
             def salv_renda(e): set_renda(limpar_valor(t_renda.value)); notificar("Salvo")
@@ -258,7 +259,7 @@ def main(page: ft.Page):
                 h = limpar_valor(t_pv.value)/tr
                 txt_pv.value = f"Custa: {h:.1f} horas de trabalho." if h>1 else f"Custa: {int(h*60)} minutos."
                 page.update()
-            box_vida = ft.Container(content=ft.Column([ft.Text("Preço de Vida", weight="bold"), ft.Row([t_pv, ft.IconButton(ft.icons.CALCULATE, on_click=calc_pv)]), txt_pv]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4,"#fbbf24")))
+            box_vida = ft.Container(content=ft.Column([ft.Text("Preço de Vida", weight="bold"), ft.Row([t_pv, ft.IconButton("calculate", on_click=calc_pv)]), txt_pv]), bgcolor="#1e293b", padding=15, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4,"#fbbf24")))
 
             t_tot = ft.TextField(label="Total", width=130, on_change=mascara_dinheiro); t_pag = ft.TextField(label="Pago", width=130, on_change=mascara_dinheiro); res_tr = ft.Text("Troco: R$ 0,00", weight="bold")
             def calc_tr(e): res_tr.value = f"Troco: {formatar_moeda_visual(limpar_valor(t_pag.value) - limpar_valor(t_tot.value))}"; page.update()
@@ -292,15 +293,15 @@ def main(page: ft.Page):
                 box_vida, ft.Container(height=10),
                 box_troco, ft.Container(height=10),
                 box_juros, ft.Container(height=10),
-                ft.Container(content=ft.Column([ft.Row([t_dica, ft.IconButton(ft.icons.AUTO_AWESOME, on_click=get_dica)]), c_dica]), bgcolor="#1e293b", padding=15, border_radius=10),
+                ft.Container(content=ft.Column([ft.Row([t_dica, ft.IconButton("auto_awesome", on_click=get_dica)]), c_dica]), bgcolor="#1e293b", padding=15, border_radius=10),
                 ft.Container(height=10),
-                ft.Container(content=ft.Column([ft.Text("Agendar"), ft.Row([t_ag, ft.IconButton(ft.icons.SEND, on_click=ag)])]), bgcolor="#1e293b", padding=15, border_radius=10),
+                ft.Container(content=ft.Column([ft.Text("Agendar"), ft.Row([t_ag, ft.IconButton("send", on_click=ag)])]), bgcolor="#1e293b", padding=15, border_radius=10),
                 ft.Container(height=10),
-                ft.Container(content=ft.Column([ft.Text("Chat"), ft.Row([t_chat, ft.IconButton(ft.icons.CHAT, on_click=chat)]), r_chat]), bgcolor="#1e293b", padding=15, border_radius=10),
+                ft.Container(content=ft.Column([ft.Text("Chat"), ft.Row([t_chat, ft.IconButton("chat", on_click=chat)]), r_chat]), bgcolor="#1e293b", padding=15, border_radius=10),
                 ft.Container(height=50)
-            ])
+            ], scroll="auto", expand=True)
 
-        # TELA 3: ASSINATURAS
+        # 3. CAÇADOR DE ASSINATURAS
         def tela_assinaturas():
             lista_ass = ft.Column(spacing=10)
             t_nome = ft.TextField(label="Nome (Netflix)", expand=True)
@@ -320,8 +321,8 @@ def main(page: ft.Page):
                     
                     card = ft.Container(content=ft.Row([
                         ft.Column([ft.Text(nome, weight="bold"), ft.Text(formatar_moeda_visual(val), size=12)], expand=True),
-                        ft.Column([ft.Text(txt, color=cor, size=12, weight="bold"), ft.IconButton(ft.icons.THUMB_UP if uso else ft.icons.THUMB_DOWN, icon_color=cor, on_click=toggle)]),
-                        ft.IconButton(ft.icons.DELETE, icon_color="grey", on_click=delete)
+                        ft.Column([ft.Text(txt, color=cor, size=12, weight="bold"), ft.IconButton("thumb_up" if uso else "thumb_down", icon_color=cor, on_click=toggle)]),
+                        ft.IconButton("delete", icon_color="grey", on_click=delete)
                     ]), bgcolor="#1e293b", padding=10, border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, cor)))
                     lista_ass.controls.append(card)
 
@@ -336,17 +337,18 @@ def main(page: ft.Page):
                 ft.Container(height=10),
                 lista_ass,
                 ft.Container(height=20),
-                ft.Container(content=ft.Row([t_nome, t_val, ft.IconButton(ft.icons.ADD_CIRCLE, icon_color=COR_PRINCIPAL, icon_size=40, on_click=add)]), bgcolor="#1e293b", padding=10, border_radius=10),
+                ft.Container(content=ft.Row([t_nome, t_val, ft.IconButton("add_circle", icon_color=COR_PRINCIPAL, icon_size=40, on_click=add)]), bgcolor="#1e293b", padding=10, border_radius=10),
                 ft.Container(height=50)
-            ])
+            ], scroll="auto", expand=True)
 
         # Navegação
         def mudar(idx):
             page.clean()
-            if idx == 0: page.add(ft.SafeArea(content=ft.Container(padding=20, content=tela_extrato())))
-            elif idx == 1: page.add(ft.SafeArea(content=ft.Container(padding=20, content=tela_ferramentas())))
-            elif idx == 2: page.add(ft.SafeArea(content=ft.Container(padding=20, content=tela_assinaturas())))
-            page.update() # IMPORTANTE: Atualiza após mudar tela
+            # Container seguro com padding
+            if idx == 0: page.add(ft.Container(padding=15, content=tela_extrato(), expand=True))
+            elif idx == 1: page.add(ft.Container(padding=15, content=tela_ferramentas(), expand=True))
+            elif idx == 2: page.add(ft.Container(padding=15, content=tela_assinaturas(), expand=True))
+            page.update()
 
         def menu_change(e):
             idx = e.control.selected_index
@@ -357,24 +359,21 @@ def main(page: ft.Page):
 
         page.drawer = ft.NavigationDrawer(bgcolor="#1e293b", indicator_color=COR_PRINCIPAL, controls=[
             ft.Container(height=20), ft.Text("  FINANTEA", size=20, weight="bold", color="white"), ft.Divider(),
-            ft.NavigationDrawerDestination(label="Extrato", icon=ft.icons.LIST),
-            ft.NavigationDrawerDestination(label="Ferramentas", icon=ft.icons.BUILD),
-            ft.NavigationDrawerDestination(label="Assinaturas", icon=ft.icons.SUBSCRIPTIONS),
+            ft.NavigationDrawerDestination(label="Extrato", icon="list"),
+            ft.NavigationDrawerDestination(label="Ferramentas", icon="build"),
+            ft.NavigationDrawerDestination(label="Assinaturas", icon="subscriptions"),
             ft.Divider(),
-            ft.NavigationDrawerDestination(label="Doar Café", icon=ft.icons.COFFEE)
+            ft.NavigationDrawerDestination(label="Doar Café", icon="coffee")
         ], on_change=menu_change)
 
         def abrir_menu(e): page.drawer.open = True; page.update()
-        page.appbar = ft.AppBar(leading=ft.IconButton(ft.icons.MENU, on_click=abrir_menu), title=ft.Text("Finantea"), bgcolor="#0f172a")
+        page.appbar = ft.AppBar(leading=ft.IconButton("menu", on_click=abrir_menu), title=ft.Text("Finantea"), bgcolor="#0f172a")
 
-        # INICIALIZAÇÃO
+        # Início
         if not is_intro_ok(): 
-            page.add(ft.SafeArea(content=tela_onboarding()))
+            page.add(ft.Container(padding=15, content=tela_onboarding(), expand=True))
         else: 
             mudar(0)
-        
-        # O PULO DO GATO: Update Final para garantir renderização no Android
-        page.update()
 
     except Exception as e:
         page.clean(); page.add(ft.Text(f"Erro Fatal: {e}", color="red"))
