@@ -9,71 +9,40 @@ import urllib.request
 import urllib.error
 import warnings
 import logging
-import pathlib
 
 # ==============================================================================
-# 0. CONFIGURAÇÃO (ANDROID 11 SAFE STORAGE)
+# 0. CONFIGURAÇÃO
 # ==============================================================================
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 warnings.filterwarnings("ignore")
 logging.getLogger("flet").setLevel(logging.ERROR)
 
-# Variáveis Globais
 CONN = None
 CURSOR = None
 API_KEY = ""
 TEM_IA = False
-DB_PATH_DISPLAY = "Iniciando..." # Para debug visual
-
-def get_android_safe_path():
-    """
-    Retorna um caminho onde o Android 11 DEIXA escrever.
-    Geralmente: /data/user/0/com.seu.app/files/banco_finantea/
-    """
-    try:
-        # Tenta pegar a pasta de documentos do usuário (App Data)
-        home = pathlib.Path.home()
-        # Cria a pasta pedida
-        pasta_banco = os.path.join(str(home), "banco_finantea")
-        
-        if not os.path.exists(pasta_banco):
-            os.makedirs(pasta_banco, mode=0o777, exist_ok=True)
-            
-        db_file = os.path.join(pasta_banco, "dados.db")
-        return db_file
-    except Exception as e:
-        # Fallback extremo para pasta temporária se tudo falhar
-        return "dados_financeiros.db"
-
-DB_FILE = get_android_safe_path()
 
 # ==============================================================================
-# 1. FUNÇÕES DO SISTEMA
+# 1. LÓGICA DE NEGÓCIO
 # ==============================================================================
-def inicializar_sistema():
-    global CONN, CURSOR, API_KEY, TEM_IA, DB_PATH_DISPLAY
+def inicializar():
+    global CONN, CURSOR, API_KEY, TEM_IA
     
-    # 1. Define Caminho Visual (Debug)
-    DB_PATH_DISPLAY = DB_FILE
-
-    # 2. Carrega API Key (Segura)
+    # 1. API Key
     try:
         base_path = os.path.dirname(os.path.abspath(__file__))
         env_path = os.path.join(base_path, ".env")
         if os.path.exists(env_path):
             with open(env_path, "r") as f:
                 for line in f:
-                    if "API_KEY" in line and "=" in line:
-                        API_KEY = line.split("=", 1)[1].strip()
-                        TEM_IA = True
+                    if "API_KEY" in line: API_KEY = line.split("=", 1)[1].strip(); TEM_IA = True
     except: pass
 
-    # 3. Conecta BD
+    # 2. Banco de Dados (Simples e Seguro)
     try:
-        CONN = sqlite3.connect(DB_FILE, check_same_thread=False)
+        # Cria no diretório atual (sandbox do app)
+        CONN = sqlite3.connect("finantea.db", check_same_thread=False)
         CURSOR = CONN.cursor()
-        
-        # Criação de Tabelas (Garante que existem)
         sqls = [
             "CREATE TABLE IF NOT EXISTS financeiro (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, descricao TEXT, categoria TEXT, tipo TEXT, valor REAL)",
             "CREATE TABLE IF NOT EXISTS lembretes (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, data_vencimento TEXT, valor REAL, status TEXT, anexo TEXT)",
@@ -83,32 +52,28 @@ def inicializar_sistema():
         for s in sqls: CURSOR.execute(s)
         CONN.commit()
     except Exception as e:
-        DB_PATH_DISPLAY = f"Erro BD: {e}"
+        print(e)
 
-def formatar_moeda(v):
-    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-def limpar_valor(texto):
+# Helpers
+def formatar_moeda(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+def limpar_valor(t):
     try:
-        v = re.sub(r'[^\d.,]', '', str(texto))
+        v = re.sub(r'[^\d.,]', '', str(t))
         if ',' in v and '.' in v: v = v.replace('.', '').replace(',', '.')
         elif ',' in v: v = v.replace(',', '.')
         return float(v)
     except: return 0.0
 
-# --- CRUD ---
-def db_add_transacao(data, desc, tipo, valor):
-    v = abs(valor) * -1 if tipo == "Despesa" else abs(valor)
-    CURSOR.execute("INSERT INTO financeiro (data, descricao, categoria, tipo, valor) VALUES (?, ?, 'Geral', ?, ?)", (data, desc, tipo, v)); CONN.commit()
-def db_list_transacoes(mes):
-    CURSOR.execute("SELECT * FROM financeiro WHERE data LIKE ? ORDER BY id DESC", [f"%/{mes}"]); return CURSOR.fetchall()
-def db_del_transacao(id_i): CURSOR.execute("DELETE FROM financeiro WHERE id = ?", (id_i,)); CONN.commit()
-def db_get_meses():
+# CRUD
+def db_add(data, desc, tipo, valor): CURSOR.execute("INSERT INTO financeiro (data, descricao, categoria, tipo, valor) VALUES (?, ?, 'Geral', ?, ?)", (data, desc, tipo, abs(valor)*(-1 if tipo=="Despesa" else 1))); CONN.commit()
+def db_list(mes): CURSOR.execute("SELECT * FROM financeiro WHERE data LIKE ? ORDER BY id DESC", [f"%/{mes}"]); return CURSOR.fetchall()
+def db_del(id_i): CURSOR.execute("DELETE FROM financeiro WHERE id = ?", (id_i,)); CONN.commit()
+def db_meses():
     m = set(); CURSOR.execute("SELECT data FROM financeiro")
     for r in CURSOR:
         try: m.add((datetime.strptime(r[0], "%d/%m/%Y").year, datetime.strptime(r[0], "%d/%m/%Y").month))
         except: continue
-    now = datetime.now(); m.add((now.year, now.month)); return [f"{mm:02d}/{y}" for y, mm in sorted(list(m))]
+    now=datetime.now(); m.add((now.year, now.month)); return [f"{mm:02d}/{y}" for y, mm in sorted(list(m))]
 
 def db_perfil_set(v): CURSOR.execute("INSERT OR REPLACE INTO perfil (id, tipo, valor) VALUES (1, 'renda', ?)", (v,)); CONN.commit()
 def db_perfil_get(): CURSOR.execute("SELECT valor FROM perfil WHERE tipo='renda'"); res = CURSOR.fetchone(); return res[0] if res else 0.0
@@ -119,10 +84,9 @@ def db_ass_add(n, v): CURSOR.execute("INSERT INTO assinaturas (nome, valor, em_u
 def db_ass_list(): CURSOR.execute("SELECT * FROM assinaturas"); return CURSOR.fetchall()
 def db_ass_toggle(id_a, s): CURSOR.execute("UPDATE assinaturas SET em_uso = ? WHERE id = ?", (0 if s else 1, id_a)); CONN.commit()
 def db_ass_del(id_a): CURSOR.execute("DELETE FROM assinaturas WHERE id = ?", (id_a,)); CONN.commit()
-
 def db_lembrete_add(n, d, v): CURSOR.execute("INSERT INTO lembretes (nome, data_vencimento, valor, status) VALUES (?, ?, ?, 'Pendente')", (n, d, v)); CONN.commit()
 
-# --- IA ---
+# IA
 def chamar_autiah(prompt):
     if not TEM_IA: return None
     try:
@@ -143,40 +107,40 @@ def interpretar_agendamento(texto):
             return json.loads(res[res.find("{"):res.rfind("}")+1])
     except: return None
 
-# --- PDF ---
+# PDF
 class PDFRelatorio(FPDF):
     def header(self):
         self.set_fill_color(14,165,233); self.rect(0,0,210,30,'F'); self.set_y(8)
-        self.set_font('Arial','B',18); self.set_text_color(255); self.cell(0,10,"FINANTEA - Extrato",0,1,'C'); self.ln(15)
-
+        self.set_font('Arial','B',18); self.set_text_color(255); self.cell(0,10,"FINANTEA",0,1,'C'); self.ln(15)
 def gerar_pdf(dados, mes):
     try:
         import tempfile
-        path = os.path.join(tempfile.gettempdir(), f"extrato_{mes.replace('/','_')}.pdf")
+        path = os.path.join(tempfile.gettempdir(), f"extrato.pdf")
         pdf = PDFRelatorio(); pdf.add_page(); pdf.set_text_color(0); pdf.set_font("Arial","B",12)
-        pdf.cell(0,10,f"Ref: {mes}",ln=True); pdf.ln(2)
-        pdf.set_fill_color(240); pdf.set_font("Arial","B",10)
-        pdf.cell(30,10,"Data",1,0,'C',1); pdf.cell(110,10,"Descricao",1,0,'L',1); pdf.cell(40,10,"Valor",1,1,'R',1); pdf.set_font("Arial","",10)
+        pdf.cell(0,10,f"Ref: {mes}",ln=True); pdf.ln(2); pdf.set_fill_color(240); pdf.set_font("Arial","",10)
         for r in dados:
-            pdf.ln(); pdf.cell(30,8,r[1],1,0,'C'); pdf.cell(110,8,f" {r[2][:50]}",1,0,'L'); pdf.cell(40,8,f"{r[5]:,.2f}".replace(",", "."),1,1,'R')
+            pdf.ln(); pdf.cell(30,8,r[1],1,0,'C'); pdf.cell(110,8,f" {r[2][:40]}",1,0,'L'); pdf.cell(40,8,f"{r[5]:,.2f}",1,1,'R')
         pdf.output(path); return path
     except: return None
 
 # ==============================================================================
-# 2. INTERFACE (V58 - FINAL)
+# 2. INTERFACE (V60 - RENDERIZAÇÃO SEGURA)
 # ==============================================================================
 def main(page: ft.Page):
-    # Configuração da página principal
+    # CORREÇÃO CRUCIAL: Scroll na página, não nos containers
     page.title = "Finantea"
-    page.theme_mode = "dark"
     page.bgcolor = "#0f172a"
+    page.theme_mode = "dark"
     page.padding = 0
-    page.scroll = None # Gerenciado pelas ListViews internas
+    page.scroll = ft.ScrollMode.AUTO 
     
     COR_PRINCIPAL = "#0ea5e9"
-    
-    # Inicializa sistema
-    inicializar_sistema()
+    inicializar()
+
+    # Se o BD falhou, mostra erro
+    if not CONN:
+        page.add(ft.Text("Erro: Banco de Dados não iniciou.", color="red"))
+        return
 
     def notificar(m, c="green"):
         page.snack_bar = ft.SnackBar(ft.Text(m), bgcolor=c); page.snack_bar.open=True; page.update()
@@ -186,19 +150,19 @@ def main(page: ft.Page):
         e.control.value = f"R$ {int(v)/100:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if v else ""
         e.control.update()
 
-    # --- TELAS ---
+    # --- ELEMENTOS DE TELA (SEM EXPAND PARA EVITAR TELA AZUL) ---
+    
     def tela_onboarding():
         t_renda = ft.TextField(label="Renda Mensal", prefix=ft.Text("R$ "), keyboard_type="number", on_change=mascara_dinheiro, width=300)
         def ir(e):
             if limpar_valor(t_renda.value) > 0: db_perfil_set(limpar_valor(t_renda.value)); db_intro_set(); navegar_para(0)
-        
-        return ft.Column([
+        return ft.Container(padding=20, content=ft.Column([
             ft.Container(height=50),
             ft.Icon("rocket_launch", size=60, color=COR_PRINCIPAL),
-            ft.Text("Bem-vindo ao Finantea!", size=24, weight="bold"),
+            ft.Text("Bem-vindo!", size=24, weight="bold"),
             t_renda,
             ft.ElevatedButton("Iniciar", bgcolor=COR_PRINCIPAL, color="white", on_click=ir, width=200)
-        ], horizontal_alignment="center", alignment="center", expand=True)
+        ], horizontal_alignment="center"))
 
     def tela_extrato():
         t_data = ft.TextField(label="Data", value=datetime.now().strftime("%d/%m/%Y"), width=130)
@@ -206,37 +170,31 @@ def main(page: ft.Page):
         t_val = ft.TextField(label="Valor", width=120, keyboard_type="number", on_change=mascara_dinheiro)
         t_tipo = ft.Dropdown(width=100, options=[ft.dropdown.Option("Despesa"), ft.dropdown.Option("Receita")], value="Despesa")
         
-        txt_ent = ft.Text("Ent: R$ 0,00", color="green"); txt_sai = ft.Text("Sai: R$ 0,00", color="red"); txt_sal = ft.Text("Saldo: R$ 0,00", weight="bold")
-        
-        meses = db_get_meses(); m_atual = meses[-1] if meses else datetime.now().strftime("%m/%Y")
+        txt_resumo = ft.Text("Carregando...", weight="bold", size=16)
+        lista_coluna = ft.Column(spacing=10) # Sem scroll, usa o da página
+
+        meses = db_meses(); m_atual = meses[-1] if meses else datetime.now().strftime("%m/%Y")
         dd_mes = ft.Dropdown(width=130, options=[ft.dropdown.Option(m) for m in meses], value=m_atual)
-        
-        lv_lista = ft.ListView(expand=True, spacing=10, padding=10)
 
         def render():
-            d = db_list_transacoes(dd_mes.value)
+            d = db_list(dd_mes.value)
             e = sum(r[5] for r in d if r[5]>0); s = abs(sum(r[5] for r in d if r[5]<0))
-            txt_ent.value=f"Ent: {formatar_moeda(e)}"; txt_sai.value=f"Sai: {formatar_moeda(s)}"; txt_sal.value=f"Saldo: {formatar_moeda(e-s)}"
+            txt_resumo.value = f"Saldo: {formatar_moeda(e-s)}\n(Ent: {formatar_moeda(e)} | Sai: {formatar_moeda(s)})"
+            txt_resumo.color = "#4ade80" if (e-s)>=0 else "#f87171"
             
-            lv_lista.controls.clear()
+            lista_coluna.controls.clear()
             for r in d:
                 cor = "#f87171" if r[5]<0 else "#4ade80"
-                lv_lista.controls.append(ft.Container(
-                    bgcolor="#1e293b", padding=10, border_radius=5,
-                    content=ft.Row([
-                        ft.Text(r[1], width=80), ft.Text(r[2], expand=True), ft.Text(f"{r[5]:.2f}", color=cor),
-                        ft.IconButton("delete", icon_color="grey", on_click=lambda e, x=r[0]: (db_del_transacao(x), render(), page.update()))
-                    ])
-                ))
+                lista_coluna.controls.append(ft.Container(bgcolor="#1e293b", padding=10, border_radius=5, content=ft.Row([
+                    ft.Text(r[1], width=80), ft.Text(r[2], expand=True), ft.Text(f"{r[5]:.2f}", color=cor),
+                    ft.IconButton("delete", icon_color="grey", on_click=lambda e, x=r[0]: (db_del(x), render(), page.update()))
+                ])))
             page.update()
 
         def add(e):
-            if limpar_valor(t_val.value) > 0:
-                db_add_transacao(t_data.value, t_desc.value, t_tipo.value, limpar_valor(t_val.value))
-                t_desc.value=""; t_val.value=""; notificar("Salvo"); render()
-
+            if limpar_valor(t_val.value) > 0: db_add(t_data.value, t_desc.value, t_tipo.value, limpar_valor(t_val.value)); t_desc.value=""; t_val.value=""; notificar("Salvo"); render()
         def pdf_acao(e):
-            p = gerar_pdf(db_list_transacoes(dd_mes.value), dd_mes.value)
+            p = gerar_pdf(db_list(dd_mes.value), dd_mes.value); 
             if p: notificar(f"PDF criado.")
 
         dd_mes.on_change = lambda e: render()
@@ -244,112 +202,83 @@ def main(page: ft.Page):
 
         return ft.Column([
             ft.Container(padding=10, content=ft.Row([ft.Text("Extrato", size=24, weight="bold"), ft.Row([dd_mes, ft.IconButton("picture_as_pdf", icon_color=COR_PRINCIPAL, on_click=pdf_acao)])], alignment="spaceBetween")),
-            ft.Container(padding=10, bgcolor="#1e293b", content=ft.Column([ft.Row([txt_ent, txt_sai], alignment="spaceBetween"), ft.Divider(height=5), txt_sal])),
-            lv_lista,
+            ft.Container(padding=10, bgcolor="#1e293b", content=txt_resumo, border_radius=10),
+            lista_coluna, # Lista renderizada linearmente
             ft.Container(padding=10, bgcolor="#1e293b", content=ft.Column([
                 ft.Text("Novo Lançamento"),
                 ft.Row([t_data, t_tipo, t_val]),
                 ft.Row([t_desc, ft.IconButton("send", icon_color=COR_PRINCIPAL, on_click=add)])
-            ]))
-        ], expand=True)
+            ])),
+            ft.Container(height=50) # Espaço extra rodapé
+        ])
 
     def tela_ferramentas():
-        lv_ferramentas = ft.ListView(expand=True, spacing=15, padding=15)
+        col = ft.Column(spacing=15)
         
-        # 1. Renda
-        t_renda = ft.TextField(label="Renda Mensal", value=formatar_moeda(db_perfil_get()), on_change=mascara_dinheiro)
-        def salv_renda(e): db_perfil_set(limpar_valor(t_renda.value)); notificar("Renda atualizada")
-        lv_ferramentas.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, content=ft.Row([t_renda, ft.IconButton("save", on_click=salv_renda)])))
+        # Renda
+        t_renda = ft.TextField(label="Renda", value=formatar_moeda(db_perfil_get()), on_change=mascara_dinheiro)
+        col.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, content=ft.Row([t_renda, ft.IconButton("save", on_click=lambda e: (db_perfil_set(limpar_valor(t_renda.value)), notificar("Salvo")))])))
 
-        # 2. Preço de Vida
-        t_pv = ft.TextField(label="Preço do Item", prefix=ft.Text("R$ "), on_change=mascara_dinheiro, expand=True)
-        res_pv = ft.Text("Descubra o custo em vida...", italic=True)
-        def calc_pv(e):
-            r = db_perfil_get()
-            if r <= 0: res_pv.value = "Defina sua renda primeiro!"; page.update(); return
-            h = limpar_valor(t_pv.value) / (r/160)
-            res_pv.value = f"Isso custa {h:.1f} horas de trabalho." if h>1 else f"Isso custa {int(h*60)} minutos."
-            page.update()
-        lv_ferramentas.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4, "#fbbf24")),
-            content=ft.Column([ft.Text("Preço de Vida", weight="bold"), ft.Row([t_pv, ft.IconButton("calculate", on_click=calc_pv)]), res_pv])))
+        # Preço Vida
+        t_pv = ft.TextField(label="Preço Item", prefix=ft.Text("R$ "), on_change=mascara_dinheiro, expand=True); r_pv = ft.Text("Custo em vida...", italic=True)
+        def c_pv(e):
+            r = db_perfil_get(); h = limpar_valor(t_pv.value)/(r/160) if r>0 else 0
+            r_pv.value = f"Custa {h:.1f} horas" if h>1 else f"Custa {int(h*60)} min"; page.update()
+        col.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, border=ft.border.only(left=ft.border.BorderSide(4,"#fbbf24")), content=ft.Column([ft.Text("Preço de Vida", weight="bold"), ft.Row([t_pv, ft.IconButton("calculate", on_click=c_pv)]), r_pv])))
 
-        # 3. Calculadora de Troco
-        t_tot = ft.TextField(label="Total", width=120, on_change=mascara_dinheiro); t_pag = ft.TextField(label="Pago", width=120, on_change=mascara_dinheiro)
-        res_tr = ft.Text("Troco: R$ 0,00", weight="bold")
-        def calc_tr(e): res_tr.value = f"Troco: {formatar_moeda(limpar_valor(t_pag.value) - limpar_valor(t_tot.value))}"; page.update()
-        lv_ferramentas.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, 
-            content=ft.Column([ft.Text("Calc. Troco", weight="bold"), ft.Row([t_tot, t_pag, ft.IconButton("calculate", on_click=calc_tr)]), res_tr])))
+        # Troco
+        t_tot = ft.TextField(label="Total", width=100, on_change=mascara_dinheiro); t_pg = ft.TextField(label="Pago", width=100, on_change=mascara_dinheiro); r_tr = ft.Text("Troco: R$ 0")
+        def c_tr(e): r_tr.value=f"Troco: {formatar_moeda(limpar_valor(t_pg.value)-limpar_valor(t_tot.value))}"; page.update()
+        col.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, content=ft.Column([ft.Text("Troco", weight="bold"), ft.Row([t_tot, t_pg, ft.IconButton("calculate", on_click=c_tr)]), r_tr])))
 
-        # 4. Calculadora de Juros
-        j_val = ft.TextField(label="Valor", width=120, on_change=mascara_dinheiro); j_tax = ft.TextField(label="%", width=60); j_par = ft.TextField(label="x", width=60)
-        j_res = ft.Text("")
-        def calc_jur(e):
-            try:
-                v=limpar_valor(j_val.value); i=float(j_tax.value.replace(",","."))/100; n=int(j_par.value); t=v*((1+i)**n)
-                j_res.value = f"Total: {formatar_moeda(t)} (Juros: {formatar_moeda(t-v)})"; page.update()
+        # Juros
+        j_v = ft.TextField(label="Valor", width=100, on_change=mascara_dinheiro); j_t = ft.TextField(label="%", width=60); j_p = ft.TextField(label="x", width=60); j_r = ft.Text("")
+        def c_jr(e):
+            try: v=limpar_valor(j_v.value); i=float(j_t.value.replace(",","."))/100; n=int(j_p.value); t=v*((1+i)**n); j_r.value=f"Tot: {formatar_moeda(t)}"; page.update()
             except: pass
-        lv_ferramentas.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10,
-            content=ft.Column([ft.Text("Calc. Juros Composto", weight="bold"), ft.Row([j_val, j_tax, j_par, ft.IconButton("calculate", on_click=calc_jur)]), j_res])))
+        col.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, content=ft.Column([ft.Text("Juros", weight="bold"), ft.Row([j_v, j_t, j_p, ft.IconButton("calculate", on_click=c_jr)]), j_r])))
 
-        # 5. IA e Chat
-        t_chat = ft.TextField(label="Pergunte a Autiah", expand=True)
-        r_chat = ft.Text("")
-        def chat_acao(e):
-            r_chat.value="..."; page.update(); r = chamar_autiah(t_chat.value); r_chat.value = r if r else "Offline"; page.update()
-        lv_ferramentas.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, content=ft.Column([
-            ft.Text("Autiah Chat", weight="bold"), ft.Row([t_chat, ft.IconButton("chat", on_click=chat_acao)]), r_chat
-        ])))
+        # IA/Chat
+        t_ch = ft.TextField(label="Autiah Chat", expand=True); r_ch = ft.Text("")
+        def chat(e): r_ch.value="..."; page.update(); r=chamar_autiah(t_ch.value); r_ch.value=r if r else "Offline"; page.update()
+        col.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, content=ft.Column([ft.Text("Chat", weight="bold"), ft.Row([t_ch, ft.IconButton("chat", on_click=chat)]), r_ch])))
 
-        # 6. Agendador
-        t_ag = ft.TextField(label="Ex: Pagar luz 100 dia 5", expand=True)
-        def ag_acao(e):
+        # Agendador
+        t_ag = ft.TextField(label="Ex: Luz 100 dia 5", expand=True)
+        def ag(e):
             d = interpretar_agendamento(t_ag.value)
-            if d:
-                db_lembrete_add(d.get('nome','Conta'), d.get('data',''), d.get('valor',0))
-                notificar(f"Lembrete criado: {d.get('nome')}")
-            else: notificar("Autiah não entendeu", "red")
-        lv_ferramentas.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, content=ft.Column([
-            ft.Text("Agendador Inteligente", weight="bold"), ft.Row([t_ag, ft.IconButton("event", on_click=ag_acao)])
-        ])))
+            if d: db_lembrete_add(d.get('nome','Conta'), d.get('data',''), d.get('valor',0)); notificar("Agendado")
+            else: notificar("Erro IA", "red")
+        col.controls.append(ft.Container(padding=10, bgcolor="#1e293b", border_radius=10, content=ft.Column([ft.Text("Agendar", weight="bold"), ft.Row([t_ag, ft.IconButton("event", on_click=ag)])])))
 
-        return ft.Column([ft.Container(padding=15, content=ft.Text("Ferramentas", size=24, weight="bold")), lv_ferramentas], expand=True)
+        return ft.Column([ft.Container(padding=15, content=ft.Text("Ferramentas", size=24, weight="bold")), col, ft.Container(height=50)])
 
     def tela_assinaturas():
-        t_nome = ft.TextField(label="Nome (ex: Netflix)", expand=True)
-        t_val = ft.TextField(label="Valor", width=120, on_change=mascara_dinheiro)
-        lv_ass = ft.ListView(expand=True, spacing=10, padding=10)
-
+        t_nome = ft.TextField(label="Nome", expand=True); t_val = ft.TextField(label="Valor", width=120, on_change=mascara_dinheiro)
+        lista_ass = ft.Column(spacing=10)
         def render():
-            lv_ass.controls.clear()
-            items = db_ass_list()
-            total = sum(i[2] for i in items if i[3])
-            lv_ass.controls.append(ft.Container(padding=10, bgcolor="#334155", border_radius=5, content=ft.Text(f"Total Mensal: {formatar_moeda(total)}", weight="bold")))
-            
+            lista_ass.controls.clear()
+            items = db_ass_list(); total = sum(i[2] for i in items if i[3])
+            lista_ass.controls.append(ft.Container(padding=10, bgcolor="#334155", border_radius=5, content=ft.Text(f"Total: {formatar_moeda(total)}", weight="bold")))
             for i in items:
-                cor = "#4ade80" if i[3] else "red"; icone = "thumb_up" if i[3] else "thumb_down"
-                lv_ass.controls.append(ft.Container(bgcolor="#1e293b", padding=10, border_radius=5, content=ft.Row([
+                cor = "#4ade80" if i[3] else "red"; ico = "thumb_up" if i[3] else "thumb_down"
+                lista_ass.controls.append(ft.Container(bgcolor="#1e293b", padding=10, border_radius=5, content=ft.Row([
                     ft.Text(i[1], weight="bold", expand=True), ft.Text(formatar_moeda(i[2])),
-                    ft.IconButton(icone, icon_color=cor, on_click=lambda e, x=i[0], s=i[3]: (db_ass_toggle(x, s), render(), page.update())),
-                    ft.IconButton("delete", icon_color="grey", on_click=lambda e, x=i[0]: (db_ass_del(x), render(), page.update()))
-                ])))
+                    ft.IconButton(ico, icon_color=cor, on_click=lambda e, x=i[0], s=i[3]: (db_ass_toggle(x, s), render(), page.update())),
+                    ft.IconButton("delete", icon_color="grey", on_click=lambda e, x=i[0]: (db_ass_del(x), render(), page.update()))])))
             page.update()
-
         def add(e):
             if limpar_valor(t_val.value) > 0: db_ass_add(t_nome.value, limpar_valor(t_val.value)); t_nome.value=""; render()
-
         render()
-        return ft.Column([
-            ft.Container(padding=15, content=ft.Text("Assinaturas", size=24, weight="bold")),
-            lv_ass,
-            ft.Container(padding=10, bgcolor="#1e293b", content=ft.Row([t_nome, t_val, ft.IconButton("add_circle", icon_color=COR_PRINCIPAL, on_click=add)]))
-        ], expand=True)
+        return ft.Column([ft.Container(padding=15, content=ft.Text("Assinaturas", size=24, weight="bold")), lista_ass, ft.Container(padding=10, bgcolor="#1e293b", content=ft.Row([t_nome, t_val, ft.IconButton("add_circle", icon_color=COR_PRINCIPAL, on_click=add)])), ft.Container(height=50)])
 
-    # --- NAVEGAÇÃO ---
+    # --- NAV ---
     def navegar_para(idx):
         page.clean()
-        if idx == 0: page.add(tela_extrato())
-        elif idx == 1: page.add(tela_ferramentas())
-        elif idx == 2: page.add(tela_assinaturas())
+        # Adiciona SafeArea ao redor do conteúdo
+        if idx == 0: page.add(ft.SafeArea(content=tela_extrato()))
+        elif idx == 1: page.add(ft.SafeArea(content=tela_ferramentas()))
+        elif idx == 2: page.add(ft.SafeArea(content=tela_assinaturas()))
         page.update()
 
     def menu_evt(e):
@@ -360,18 +289,16 @@ def main(page: ft.Page):
 
     page.drawer = ft.NavigationDrawer(bgcolor="#1e293b", indicator_color=COR_PRINCIPAL, controls=[
         ft.Container(height=20), ft.Text("  FINANTEA", size=20, weight="bold"), ft.Divider(),
-        ft.Text(f"BD: {os.path.basename(DB_FILE)}", size=10, color="grey"), # DEBUG
         ft.NavigationDrawerDestination(label="Extrato", icon="list"),
         ft.NavigationDrawerDestination(label="Ferramentas", icon="build"),
         ft.NavigationDrawerDestination(label="Assinaturas", icon="subscriptions"),
-        ft.Divider(),
-        ft.NavigationDrawerDestination(label="Doar Café", icon="coffee")
+        ft.Divider(), ft.NavigationDrawerDestination(label="Doar Café", icon="coffee")
     ], on_change=menu_evt)
 
     page.appbar = ft.AppBar(leading=ft.IconButton("menu", on_click=lambda e: (setattr(page.drawer, 'open', True), page.update())), title=ft.Text("Finantea"), bgcolor="#0f172a")
 
     if db_intro_check(): navegar_para(0)
-    else: page.add(tela_onboarding()); page.update()
+    else: page.add(ft.SafeArea(content=tela_onboarding())); page.update()
 
 if __name__ == "__main__":
     ft.app(target=main, assets_dir="assets")
